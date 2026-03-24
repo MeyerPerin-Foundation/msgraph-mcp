@@ -12,6 +12,7 @@ description = "Microsoft Graph MCP integration"
 requires-python = ">=3.10"
 dependencies = [
     "fastapi>=0.115.0",
+    "mcp>=1.26.0",
     "uvicorn[standard]>=0.30.0",
 ]
 

@@ -9,7 +9,7 @@ MCP lets AI models call external tools through a standard protocol. This project
 ## Key Design Goals
 
 - **Consumer-focused** — targets Microsoft personal accounts (MSA), not Entra ID / work accounts.
-- **Hostable** — runs as a standalone service (FastAPI + Uvicorn) that can be deployed to any cloud or container runtime.
+- **Hostable** — runs as a standalone service (FastMCP + Gunicorn/Uvicorn) deployed to Azure App Service.
 - **Secure by default** — uses OAuth 2.0 authorization code flow with PKCE; tokens are never exposed to the AI client.
 - **Thin wrapper** — maps MCP tool calls to Graph REST calls with minimal transformation, keeping the server easy to maintain as the Graph API evolves.
 
@@ -19,8 +19,8 @@ MCP lets AI models call external tools through a standard protocol. This project
 # Install dependencies
 uv sync
 
-# Run the server
-uv run uvicorn msgraph_mcp.app:app --reload
+# Run the server locally
+uv run python -m msgraph_mcp.server
 
 # Run tests
 uv run pytest
@@ -29,12 +29,24 @@ uv run pytest
 ## Project Structure
 
 ```
-src/msgraph_mcp/
+msgraph_mcp/
   __init__.py   # Package metadata
-  app.py        # FastAPI application
+  server.py     # MCP server (FastMCP + streamable HTTP transport)
+  config.py     # Allowed users configuration
 tests/
-  test_app.py   # Tests
+  test_config.py  # Config tests
+infra/
+  main.bicep    # Azure App Service infrastructure
+.github/
+  workflows/deploy.yml  # CI/CD pipeline
 ```
+
+## Deployment
+
+The server is deployed to Azure App Service via GitHub Actions on push to `main`.
+
+- **Infrastructure**: Bicep template in `infra/main.bicep`
+- **Live endpoint**: `https://msgraph-mcp.azurewebsites.net/mcp`
 
 ## License
 

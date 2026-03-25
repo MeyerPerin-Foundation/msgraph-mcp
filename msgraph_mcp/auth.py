@@ -12,7 +12,6 @@ from mcp.server.auth.provider import (
     AccessToken,
     AuthorizationCode,
     AuthorizationParams,
-    AuthorizeError,
     OAuthClientInformationFull,
     OAuthToken,
     RefreshToken,
@@ -21,6 +20,7 @@ from mcp.server.auth.provider import (
 
 from msgraph_mcp.config import (
     GRAPH_SCOPES,
+    MCP_REQUIRED_SCOPES,
     MICROSOFT_AUTHORITY,
     MSGRAPH_CLIENT_ID,
     MSGRAPH_CLIENT_SECRET,
@@ -72,12 +72,14 @@ class MicrosoftOAuthProvider:
     ) -> str:
         """Redirect to Microsoft's authorize endpoint, storing MCP flow context."""
         microsoft_state = secrets.token_urlsafe(32)
+        requested_scopes = list(params.scopes or MCP_REQUIRED_SCOPES)
 
         self.pending_flows[microsoft_state] = {
             "mcp_redirect_uri": str(params.redirect_uri),
             "mcp_code_challenge": params.code_challenge,
             "mcp_state": params.state,
             "client_id": client.client_id,
+            "mcp_scopes": requested_scopes,
         }
 
         # Build Microsoft authorize URL using MSAL's auth code flow
@@ -143,10 +145,11 @@ class MicrosoftOAuthProvider:
         # Generate MCP authorization code (>=160 bits entropy)
         mcp_auth_code = secrets.token_urlsafe(32)
         now = time.time()
+        mcp_scopes = list(flow_context.get("mcp_scopes") or MCP_REQUIRED_SCOPES)
 
         auth_code_obj = AuthorizationCode(
             code=mcp_auth_code,
-            scopes=["mcp:tools"],
+            scopes=mcp_scopes,
             expires_at=now + AUTH_CODE_LIFETIME_SECONDS,
             client_id=flow_context["client_id"],
             code_challenge=flow_context["mcp_code_challenge"],
@@ -191,17 +194,18 @@ class MicrosoftOAuthProvider:
         now = int(time.time())
         access_token_str = secrets.token_urlsafe(32)
         refresh_token_str = secrets.token_urlsafe(32)
+        token_scopes = list(authorization_code.scopes or MCP_REQUIRED_SCOPES)
 
         access_token = AccessToken(
             token=access_token_str,
             client_id=client.client_id,
-            scopes=["mcp:tools"],
+            scopes=token_scopes,
             expires_at=now + ACCESS_TOKEN_LIFETIME_SECONDS,
         )
         refresh_token = RefreshToken(
             token=refresh_token_str,
             client_id=client.client_id,
-            scopes=["mcp:tools"],
+            scopes=token_scopes,
             expires_at=now + REFRESH_TOKEN_LIFETIME_SECONDS,
         )
 
@@ -213,7 +217,7 @@ class MicrosoftOAuthProvider:
             token_type="bearer",
             expires_in=ACCESS_TOKEN_LIFETIME_SECONDS,
             refresh_token=refresh_token_str,
-            scope=" ".join(["mcp:tools"]),
+            scope=" ".join(token_scopes),
         )
 
     # --- Access Token Verification ---
@@ -259,17 +263,18 @@ class MicrosoftOAuthProvider:
         now = int(time.time())
         new_access_str = secrets.token_urlsafe(32)
         new_refresh_str = secrets.token_urlsafe(32)
+        token_scopes = list(scopes or refresh_token.scopes or MCP_REQUIRED_SCOPES)
 
         new_access = AccessToken(
             token=new_access_str,
             client_id=client.client_id,
-            scopes=["mcp:tools"],
+            scopes=token_scopes,
             expires_at=now + ACCESS_TOKEN_LIFETIME_SECONDS,
         )
         new_refresh = RefreshToken(
             token=new_refresh_str,
             client_id=client.client_id,
-            scopes=["mcp:tools"],
+            scopes=token_scopes,
             expires_at=now + REFRESH_TOKEN_LIFETIME_SECONDS,
         )
 
@@ -281,7 +286,7 @@ class MicrosoftOAuthProvider:
             token_type="bearer",
             expires_in=ACCESS_TOKEN_LIFETIME_SECONDS,
             refresh_token=new_refresh_str,
-            scope=" ".join(["mcp:tools"]),
+            scope=" ".join(token_scopes),
         )
 
     # --- Token Revocation ---

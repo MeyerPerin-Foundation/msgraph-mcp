@@ -1,14 +1,13 @@
 """Tests for the MicrosoftOAuthProvider."""
 
-import os
 import time
-from unittest import mock
 
 import pytest
 from pydantic import AnyUrl
 
 from mcp.server.auth.provider import AuthorizationCode, AuthorizationParams
 from mcp.shared.auth import OAuthClientInformationFull
+from msgraph_mcp.config import MCP_REQUIRED_SCOPES
 
 
 def _make_provider():
@@ -78,6 +77,23 @@ async def test_authorize_stores_flow_context():
     assert flow["mcp_state"] == "csrf-state"
     assert flow["mcp_code_challenge"] == "test-challenge"
     assert flow["client_id"] == "test-client"
+    assert flow["mcp_scopes"] == MCP_REQUIRED_SCOPES
+
+
+@pytest.mark.asyncio
+async def test_authorize_defaults_scope_when_not_requested():
+    provider = _make_provider()
+    client = _make_client()
+    params = AuthorizationParams(
+        state="csrf-state",
+        scopes=None,
+        code_challenge="test-challenge",
+        redirect_uri=AnyUrl("http://localhost:3000/callback"),
+        redirect_uri_provided_explicitly=True,
+    )
+    await provider.authorize(client, params)
+    flow = list(provider.pending_flows.values())[0]
+    assert flow["mcp_scopes"] == MCP_REQUIRED_SCOPES
 
 
 @pytest.mark.asyncio
@@ -135,6 +151,7 @@ async def test_exchange_authorization_code_issues_tokens():
     assert token.access_token
     assert token.refresh_token
     assert token.token_type.lower() == "bearer"
+    assert token.scope == "mcp:tools"
     assert len(provider.access_tokens) == 1
     assert len(provider.refresh_tokens) == 1
 

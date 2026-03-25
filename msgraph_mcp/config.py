@@ -25,6 +25,9 @@ MSGRAPH_SERVER_URL: str = os.environ.get(
     "MSGRAPH_SERVER_URL", "http://localhost:8000"
 )
 
+# MCP OAuth scopes exposed by this server.
+MCP_REQUIRED_SCOPES: list[str] = ["mcp:tools"]
+
 MICROSOFT_AUTHORITY = "https://login.microsoftonline.com/consumers"
 GRAPH_SCOPES: list[str] = [
     "User.Read",

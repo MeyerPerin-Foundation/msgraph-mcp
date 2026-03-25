@@ -23,9 +23,10 @@ single-user deployment. For production scaling, move to persistent storage
 | Field | Type | Description |
 |-------|------|-------------|
 | registered_clients | dict | MCP clients registered via dynamic registration (RFC 7591) |
-| pending_flows | dict | In-flight OAuth flows: `{microsoft_state: {mcp_redirect_uri, mcp_code_challenge, mcp_state}}` |
-| auth_codes | dict | Pending MCP authorization codes mapped to user email |
-| access_tokens | dict | Issued MCP access tokens mapped to user email |
+| pending_flows | dict | In-flight OAuth flows: `{microsoft_state: {mcp_redirect_uri, mcp_code_challenge, mcp_state, client_id}}` |
+| auth_codes | dict | `{code_str: AuthorizationCode(code, scopes, expires_at, client_id, code_challenge, redirect_uri) + user_email}` |
+| access_tokens | dict | `{token_str: AccessToken(token, client_id, scopes, expires_at) + user_email}` |
+| refresh_tokens | dict | `{token_str: RefreshToken(token, client_id, scopes, expires_at) + user_email}` |
 | microsoft_token_cache | SerializableTokenCache | MSAL cache for Microsoft access + refresh tokens |
 
 ### MCP Flow Mapping

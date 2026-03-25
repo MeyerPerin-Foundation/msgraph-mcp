@@ -80,16 +80,20 @@ When Microsoft redirects back, the `state` parameter is used to look up this con
 
 ## OAuthAuthorizationServerProvider Implementation
 
-The provider bridges MCP OAuth and Microsoft OAuth:
+The provider bridges MCP OAuth and Microsoft OAuth. Methods match the
+`OAuthAuthorizationServerProvider` protocol from `mcp.server.auth.provider`.
 
-| Method | Behavior |
-|--------|----------|
-| `get_client(client_id)` | Returns registered MCP client info |
-| `register_client(client_info)` | Stores MCP client registration (dynamic) |
-| `authorize(client, params)` | Redirects to Microsoft authorize endpoint, storing MCP flow state in `pending_flows` |
-| `exchange_authorization_code(...)` | Looks up MCP auth code, returns MCP access token. The access token encodes (or maps to) the user email |
-| `exchange_refresh_token(...)` | Refreshes MCP access token |
-| `verify_access_token(token)` | Validates MCP Bearer token, returns `AccessToken` with user email in `client_id` or custom field |
+| Method | Signature | Behavior |
+|--------|-----------|----------|
+| `get_client` | `(client_id: str) → OAuthClientInformationFull \| None` | Returns registered MCP client info from `registered_clients` dict |
+| `register_client` | `(client_info: OAuthClientInformationFull) → None` | Stores MCP client registration in `registered_clients` dict |
+| `authorize` | `(client, params: AuthorizationParams) → str` | Stores MCP flow context in `pending_flows[microsoft_state]`, returns Microsoft authorize URL |
+| `load_authorization_code` | `(client, authorization_code: str) → AuthorizationCode \| None` | Looks up `auth_codes[code]`, returns `AuthorizationCode` with `code`, `scopes`, `expires_at`, `client_id`, `code_challenge`, `redirect_uri` |
+| `exchange_authorization_code` | `(client, authorization_code: AuthorizationCode) → OAuthToken` | Consumes auth code, issues MCP access + refresh tokens, maps them to user email in `access_tokens` and `refresh_tokens` dicts |
+| `load_refresh_token` | `(client, refresh_token: str) → RefreshToken \| None` | Looks up `refresh_tokens[token]`, returns `RefreshToken` if found |
+| `exchange_refresh_token` | `(client, refresh_token: RefreshToken, scopes: list[str]) → OAuthToken` | Rotates MCP access + refresh tokens, preserves user email mapping |
+| `load_access_token` | `(token: str) → AccessToken \| None` | Looks up `access_tokens[token]`, returns `AccessToken` with `client_id`, `scopes`, `expires_at` |
+| `revoke_token` | `(client, token_type, token: str) → None` | Removes token from `access_tokens` or `refresh_tokens`. Single-user server — no-op is also acceptable |
 
 ---
 

@@ -1,16 +1,11 @@
 <!--
 Sync Impact Report
-- Version change: 0.0.0 → 1.0.0
-- Modified principles: N/A (initial creation)
-- Added sections: Core Principles (5), Security & Access Control, Development Workflow, Governance
+- Version change: 1.0.0 → 1.1.0
+- Modified principles: None
+- Added sections: Azure Infrastructure
 - Removed sections: None
-- Templates requiring updates:
-  - .specify/templates/plan-template.md ✅ no update needed (Constitution Check section is generic)
-  - .specify/templates/spec-template.md ✅ no update needed (structure compatible)
-  - .specify/templates/tasks-template.md ✅ no update needed (phase structure compatible)
-  - .github/copilot-instructions.md ✅ no update needed (PR auto-merge aligned with Principle V)
-  - README.md ⚠ pending (still references src/ layout and FastAPI; separate cleanup)
-- Follow-up TODOs: README.md update for current project structure
+- Templates requiring updates: None
+- Follow-up TODOs: None
 -->
 
 # msgraph-mcp Constitution
@@ -72,6 +67,23 @@ deployments prevent configuration drift and broken production.
 - No PII or tokens in logs. Structured logging MUST redact
   sensitive fields.
 
+## Azure Infrastructure
+
+This project is deployed to the **MeyerPerin Foundation Azure**
+subscription (`333a3e2f-80b1-452b-8691-bcfdc67987ad`) under
+tenant `ad4a6417-805d-483c-a025-72b68685c1da`. It is a personal
+project, NOT a Microsoft corporate resource.
+
+- **Resource group**: `msgraph-rg`
+- **App Service Plan**: `ASP-research` (in `research` resource group,
+  Canada Central, Linux, P0v3)
+- **Web App**: `msgraph-mcp`
+- **App registration**: Registered in the MeyerPerin Foundation
+  tenant with audience "Personal Microsoft accounts only"
+- Azure CLI commands that create or modify resources MUST target
+  the MeyerPerin Foundation subscription, not the Microsoft
+  corporate tenant.
+
 ## Development Workflow
 
 - **Package management**: uv (lockfile committed as `uv.lock`).
@@ -100,4 +112,4 @@ All code reviews MUST verify compliance with these principles.
 Complexity beyond what the principles allow MUST be justified
 in the PR description.
 
-**Version**: 1.0.0 | **Ratified**: 2026-03-24 | **Last Amended**: 2026-03-24
+**Version**: 1.1.0 | **Ratified**: 2026-03-24 | **Last Amended**: 2026-03-25

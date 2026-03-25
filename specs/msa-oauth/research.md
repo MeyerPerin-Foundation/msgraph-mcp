@@ -4,8 +4,8 @@
 
 - **Decision**: Implement MCP-native OAuth using FastMCP's built-in auth support
 - **Key insight**: The MCP spec (2025-03-26) defines how HTTP MCP servers MUST implement authorization. Copilot CLI implements this protocol — it discovers auth requirements via RFC 9728 Protected Resource Metadata, then drives the OAuth flow itself
-- **Server role**: OAuth **Resource Server** — validates Bearer tokens, does NOT manage user sessions or token acquisition
-- **Client role**: Copilot CLI acquires tokens via the standard MCP OAuth flow, sends them as Bearer tokens
+- **Server role**: OAuth **Authorization Server + Resource Server** — proxies to Microsoft for user login, acquires and stores Microsoft tokens server-side, issues its own MCP tokens to Copilot CLI
+- **Client role**: Copilot CLI discovers auth via metadata, drives MCP OAuth flow, sends Bearer tokens on MCP requests
 - **FastMCP support**: Two options:
   - `OAuthAuthorizationServerProvider` — server is both AS + RS, proxies to Microsoft (complex)
   - `TokenVerifier` — server only validates tokens (simpler, but Copilot CLI needs to know where to get tokens)
@@ -52,9 +52,10 @@
 
 ## R6: Graph API Scopes
 
-- **Initial scopes**: `openid profile email offline_access User.Read`
-- **Tool-specific scopes**: `Mail.Read`, `Calendars.Read`, `Tasks.ReadWrite`, `Files.Read`
-- **Rationale**: Constitution Principle III requires least-privilege
+- **Decision**: Request all scopes upfront at consent time
+- **Full scope set**: `openid profile email offline_access User.Read Mail.Read Calendars.Read Tasks.ReadWrite Files.Read`
+- **Rationale**: Microsoft consumer accounts (MSA) do not reliably support incremental consent. All scopes must be requested in the initial authorization request. Constitution Principle III (least privilege) is satisfied by requesting only the scopes the server's tools actually use
+- **Note**: If new tools are added requiring additional scopes, the scope list must be updated and existing users will need to re-consent
 
 ## R7: App Registration
 

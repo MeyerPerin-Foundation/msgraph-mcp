@@ -15,11 +15,17 @@ Configuration for the OAuth flow. Loaded from environment variables.
 
 ### MCP OAuth State (managed by OAuthAuthorizationServerProvider)
 
+All state is held **in-memory**. Server restart clears all state — MCP clients
+must re-register and users must re-authenticate. This is acceptable for a
+single-user deployment. For production scaling, move to persistent storage
+(encrypted Redis or database).
+
 | Field | Type | Description |
 |-------|------|-------------|
 | registered_clients | dict | MCP clients registered via dynamic registration (RFC 7591) |
-| auth_codes | dict | Pending MCP authorization codes mapped to Microsoft tokens |
-| access_tokens | dict | Issued MCP access tokens mapped to user/Microsoft token info |
+| pending_flows | dict | In-flight OAuth flows: `{microsoft_state: {mcp_redirect_uri, mcp_code_challenge, mcp_state}}` |
+| auth_codes | dict | Pending MCP authorization codes mapped to user email |
+| access_tokens | dict | Issued MCP access tokens mapped to user email |
 | microsoft_token_cache | SerializableTokenCache | MSAL cache for Microsoft access + refresh tokens |
 
 ### MCP Flow Mapping

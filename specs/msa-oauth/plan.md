@@ -36,7 +36,7 @@ Add OAuth 2.0 authorization code flow with PKCE to the MCP server so it can auth
 ### Documentation (this feature)
 
 ```text
-specs/main/
+specs/msa-oauth/
 ├── plan.md              # This file
 ├── research.md          # OAuth research findings
 ├── data-model.md        # Auth entities and state transitions
@@ -51,22 +51,22 @@ specs/main/
 ```text
 msgraph_mcp/
 ├── __init__.py          # Package metadata
-├── server.py            # MCP server + auth routes
+├── server.py            # MCP server (updated: auth settings + provider)
 ├── config.py            # Allowed users config (existing)
-├── auth.py              # NEW: MSAL auth flow logic
+├── auth.py              # NEW: OAuthAuthorizationServerProvider implementation
 └── graph.py             # NEW: Graph API client (future tools)
 
 tests/
 ├── __init__.py
 ├── test_config.py       # Existing
-├── test_auth.py         # NEW: Auth flow tests
+├── test_auth.py         # NEW: Auth provider tests
 └── conftest.py          # NEW: Shared test fixtures
 
 infra/
 └── main.bicep           # Updated: new app settings for OAuth
 ```
 
-**Structure Decision**: Flat layout at repo root (`msgraph_mcp/`). Auth logic in dedicated `auth.py` module to keep `server.py` focused on MCP tool registration. Graph API client in `graph.py` for future tool implementations.
+**Structure Decision**: Flat layout at repo root (`msgraph_mcp/`). Auth provider in dedicated `auth.py` module implementing `OAuthAuthorizationServerProvider` to bridge MCP OAuth with Microsoft OAuth. FastMCP handles all MCP-standard OAuth routes automatically.
 
 ## Complexity Tracking
 

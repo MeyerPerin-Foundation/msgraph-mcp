@@ -9,40 +9,40 @@ Configuration for the OAuth flow. Loaded from environment variables.
 |-------|------|--------|-------------|
 | client_id | str | `MSGRAPH_CLIENT_ID` env var | Azure app registration client ID |
 | client_secret | str | `MSGRAPH_CLIENT_SECRET` env var | Azure app registration client secret |
-| redirect_uri | str | `MSGRAPH_REDIRECT_URI` env var | OAuth callback URL |
+| redirect_uri | str | `MSGRAPH_REDIRECT_URI` env var | Microsoft OAuth callback URL (server's internal route) |
 | authority | str | constant | `https://login.microsoftonline.com/consumers` |
-| scopes | list[str] | constant + config | Base scopes + tool-specific scopes |
+| scopes | list[str] | constant + config | Microsoft Graph scopes |
 
-### TokenCache
-MSAL serialized token cache persisted server-side.
-
-| Field | Type | Description |
-|-------|------|-------------|
-| cache_data | str | MSAL serialized cache (JSON blob) |
-| user_email | str | Email of authenticated user |
-| last_refreshed | datetime | Last token refresh timestamp |
-
-### AuthState
-In-memory session state during the OAuth flow.
+### MCP OAuth State (managed by OAuthAuthorizationServerProvider)
 
 | Field | Type | Description |
 |-------|------|-------------|
-| state | str | CSRF protection nonce |
-| code_verifier | str | PKCE code verifier |
-| flow | dict | MSAL auth code flow object |
+| registered_clients | dict | MCP clients registered via dynamic registration (RFC 7591) |
+| auth_codes | dict | Pending MCP authorization codes mapped to Microsoft tokens |
+| access_tokens | dict | Issued MCP access tokens mapped to user/Microsoft token info |
+| microsoft_token_cache | SerializableTokenCache | MSAL cache for Microsoft access + refresh tokens |
 
-## Relationships
+### MCP Flow Mapping
 
-- `AuthConfig` → configures → MSAL `ConfidentialClientApplication`
-- `TokenCache` → stored per → allowed user (from `config.py` allowlist)
-- `AuthState` → temporary during → OAuth login flow
+The provider bridges two OAuth flows:
+
+| MCP OAuth (Copilot CLI ↔ Server) | Microsoft OAuth (Server ↔ Microsoft) |
+|----------------------------------|--------------------------------------|
+| Client registers via `/register` | N/A |
+| Client redirected to `/authorize` | Server redirects to Microsoft `/authorize` |
+| N/A | Microsoft redirects to `/auth/microsoft/callback` |
+| Server issues MCP auth code | Server exchanges Microsoft code for tokens |
+| Client exchanges code at `/token` | Server returns MCP access token |
+| Client sends Bearer token | Server uses stored Microsoft token for Graph calls |
 
 ## State Transitions
 
 ```
-Unauthenticated → [GET /auth/login] → Redirected to Microsoft
-    → [GET /auth/callback] → Token acquired → Authenticated
-    → [token expired] → [MSAL auto-refresh] → Authenticated
-    → [refresh failed] → Unauthenticated
-    → [GET /auth/logout] → Cache cleared → Unauthenticated
+No MCP Client → [POST /register] → Client Registered
+    → [GET /authorize] → Redirected to Microsoft
+    → [Microsoft callback] → Microsoft tokens acquired
+    → [MCP auth code issued] → Client exchanges at /token
+    → [MCP access token issued] → Authenticated
+    → [token expired] → Client refreshes at /token → Authenticated
+    → [Microsoft refresh failed] → 401 on next Graph call
 ```

@@ -1,61 +1,73 @@
 # Research: MSA OAuth Authentication for MCP Server
 
-## R1: OAuth Endpoints for Consumer Accounts
+## R1: MCP Authorization Specification (Critical Finding)
 
-- **Decision**: Use Microsoft identity platform v2.0 with `consumers` tenant
+- **Decision**: Implement MCP-native OAuth using FastMCP's built-in auth support
+- **Key insight**: The MCP spec (2025-03-26) defines how HTTP MCP servers MUST implement authorization. Copilot CLI implements this protocol — it discovers auth requirements via RFC 9728 Protected Resource Metadata, then drives the OAuth flow itself
+- **Server role**: OAuth **Resource Server** — validates Bearer tokens, does NOT manage user sessions or token acquisition
+- **Client role**: Copilot CLI acquires tokens via the standard MCP OAuth flow, sends them as Bearer tokens
+- **FastMCP support**: Two options:
+  - `OAuthAuthorizationServerProvider` — server is both AS + RS, proxies to Microsoft (complex)
+  - `TokenVerifier` — server only validates tokens (simpler, but Copilot CLI needs to know where to get tokens)
+- **Decision**: Use `OAuthAuthorizationServerProvider` because the MCP client (Copilot CLI) needs an authorization server to talk to, and Microsoft's authorize endpoint can't act as the MCP AS directly (different protocols). The MCP server will proxy: MCP OAuth AS ↔ Microsoft OAuth
+- **Alternatives rejected**: Custom `/auth/*` routes (not MCP-native, Copilot CLI won't use them)
+
+## R2: OAuth Endpoints for Consumer Accounts
+
 - **Authorization endpoint**: `https://login.microsoftonline.com/consumers/oauth2/v2.0/authorize`
 - **Token endpoint**: `https://login.microsoftonline.com/consumers/oauth2/v2.0/token`
 - **Rationale**: The `/consumers` authority restricts to personal Microsoft accounts only, matching Constitution Principle II
-- **Alternatives considered**: `/common` (rejected — allows work accounts), legacy Live SDK endpoints (deprecated)
 
-## R2: Auth Flow
+## R3: Auth Architecture
 
-- **Decision**: Authorization code flow with PKCE, confidential client (client secret)
-- **Rationale**: Server-side app can securely hold a client secret. PKCE adds defense-in-depth. Refresh tokens enable long-lived sessions without re-prompting
-- **Steps**:
-  1. Server generates `state`, `code_verifier`, `code_challenge`
-  2. Redirect user to authorize endpoint with scopes + PKCE challenge
-  3. User signs in and consents
-  4. Microsoft redirects to `/auth/callback` with `code`
-  5. Server exchanges code for tokens at token endpoint
-  6. Validate user email against allowlist (`config.py`)
-  7. Store tokens server-side, use access token for Graph calls
-- **Alternatives considered**: Device code flow (rejected — requires user to visit a separate URL), client credentials (rejected — no user context)
+```
++──────────────+     MCP OAuth     +──────────────+     Microsoft OAuth     +───────────────+
+│  Copilot CLI │ ←──────────────→  │  MCP Server  │ ←────────────────────→  │  Microsoft    │
+│  (MCP Client)│                   │  (AS + RS)   │                         │  login.ms.com │
++──────────────+                   +──────────────+                         +───────────────+
+```
 
-## R3: Python Libraries
+1. Copilot CLI discovers server auth via `/.well-known/oauth-protected-resource`
+2. Copilot CLI initiates OAuth with MCP server's `/authorize` endpoint
+3. MCP server redirects to Microsoft's authorize endpoint
+4. User signs in to Microsoft, consents
+5. Microsoft redirects back to MCP server with auth code
+6. MCP server exchanges code with Microsoft for tokens
+7. MCP server issues its own auth code to Copilot CLI
+8. Copilot CLI exchanges code at MCP server's `/token` endpoint
+9. MCP server issues access token to Copilot CLI
+10. Copilot CLI sends Bearer token on all subsequent MCP requests
 
-- **Decision**: `msal` for auth, `httpx` for Graph API calls
-- **Rationale**: `msal` handles Microsoft-specific OAuth details (token cache, refresh, consumer authority). `httpx` is already a dev dependency and supports async
-- **Alternatives considered**: `azure-identity` (rejected — designed for Azure resource auth, not consumer web flows), `requests` (rejected — no async support)
+## R4: FastMCP Auth API
 
-## R4: Graph API Scopes
+- `FastMCP(auth=AuthSettings(...), auth_server_provider=MyProvider())`
+- `AuthSettings`: `issuer_url`, `resource_server_url`, `required_scopes`, `client_registration_options`
+- `OAuthAuthorizationServerProvider`: Protocol with methods `get_client`, `register_client`, `authorize`, `handle_callback`, `exchange_authorization_code`, `exchange_refresh_token`, `verify_access_token`
+- FastMCP auto-creates `/.well-known/oauth-protected-resource`, `/.well-known/oauth-authorization-server`, `/authorize`, `/token`, `/register` routes
 
-- **Decision**: Request delegated permissions with least-privilege per tool
+## R5: Python Libraries
+
+- **Decision**: `msal` for the server's upstream OAuth with Microsoft, `httpx` for Graph API calls
+- **Rationale**: `msal` handles token cache, refresh, PKCE with Microsoft. The MCP SDK handles the downstream OAuth with Copilot CLI
+
+## R6: Graph API Scopes
+
 - **Initial scopes**: `openid profile email offline_access User.Read`
-- **Tool-specific scopes** (requested at consent time):
-  - Mail: `Mail.Read`
-  - Calendar: `Calendars.Read`
-  - To Do tasks: `Tasks.ReadWrite`
-  - OneDrive: `Files.Read`
-- **Rationale**: Constitution Principle III requires least-privilege scoping. `offline_access` enables refresh tokens
-- **Alternatives considered**: Requesting all scopes upfront (rejected — violates least privilege)
+- **Tool-specific scopes**: `Mail.Read`, `Calendars.Read`, `Tasks.ReadWrite`, `Files.Read`
+- **Rationale**: Constitution Principle III requires least-privilege
 
-## R5: App Registration
+## R7: App Registration
 
 - **Decision**: Register as "Personal Microsoft accounts only" in Azure Portal
-- **Platform**: Web
-- **Redirect URI**: `https://msgraph-mcp.azurewebsites.net/auth/callback` (production), `http://localhost:8000/auth/callback` (dev)
-- **Credentials**: Client secret (stored in Azure App Service app settings, never committed)
-- **Rationale**: Simplest registration for consumer-only scenario
+- **Redirect URI**: `https://msgraph-mcp.azurewebsites.net/auth/microsoft/callback` (server's internal route for Microsoft's redirect)
+- **Credentials**: Client secret (stored in Azure App Service app settings)
 
-## R6: Token Storage
+## R8: Token Storage
 
-- **Decision**: MSAL serialized token cache, stored encrypted in Azure App Service filesystem or environment
-- **Rationale**: Single-user server (allowlist is one user by default), so an in-memory MSAL cache with file-backed persistence is sufficient. For multi-user scaling, would move to encrypted Redis/DB
-- **Alternatives considered**: Azure Key Vault per-token (over-engineered for single user), browser cookies (rejected — tokens must stay server-side per Constitution Principle III)
+- **Decision**: Server stores Microsoft tokens (access + refresh) in MSAL cache for Graph API calls. Server issues its own short-lived tokens to Copilot CLI
+- **Rationale**: Server needs Microsoft tokens to call Graph. Copilot CLI tokens are validated per-request
 
-## R7: Redirect URI Pattern
+## R9: MCP Config for Copilot CLI
 
-- **Decision**: `https://msgraph-mcp.azurewebsites.net/auth/callback`
-- **Dev**: `http://localhost:8000/auth/callback`
-- **Rationale**: Standard pattern, must match registered URI exactly
+- **Decision**: Copilot CLI config remains `{"type":"http","url":"..."}`. Auth discovery happens automatically via `/.well-known/oauth-protected-resource` endpoint (RFC 9728)
+- **Rationale**: MCP spec mandates metadata-driven discovery

@@ -29,6 +29,22 @@ resource webApp 'Microsoft.Web/sites@2024-04-01' = {
           name: 'WEBSITES_PORT'
           value: '8000'
         }
+        {
+          name: 'MSGRAPH_CLIENT_ID'
+          value: ''
+        }
+        {
+          name: 'MSGRAPH_CLIENT_SECRET'
+          value: ''
+        }
+        {
+          name: 'MSGRAPH_REDIRECT_URI'
+          value: 'https://${appName}.azurewebsites.net/auth/microsoft/callback'
+        }
+        {
+          name: 'MSGRAPH_SERVER_URL'
+          value: 'https://${appName}.azurewebsites.net'
+        }
       ]
     }
   }

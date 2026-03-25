@@ -1,0 +1,208 @@
+"""Tests for the MicrosoftOAuthProvider."""
+
+import os
+import time
+from unittest import mock
+
+import pytest
+from pydantic import AnyUrl
+
+from mcp.server.auth.provider import AuthorizationCode, AuthorizationParams
+from mcp.shared.auth import OAuthClientInformationFull
+
+
+def _make_provider():
+    """Create a fresh provider with reloaded config."""
+    import importlib
+    import msgraph_mcp.config as cfg
+    importlib.reload(cfg)
+    from msgraph_mcp.auth import MicrosoftOAuthProvider
+    return MicrosoftOAuthProvider()
+
+
+def _make_client(client_id: str = "test-client") -> OAuthClientInformationFull:
+    return OAuthClientInformationFull(
+        client_id=client_id,
+        client_name="Test Client",
+        redirect_uris=[AnyUrl("http://localhost:3000/callback")],
+    )
+
+
+@pytest.mark.asyncio
+async def test_register_and_get_client():
+    provider = _make_provider()
+    client = _make_client()
+    await provider.register_client(client)
+    result = await provider.get_client("test-client")
+    assert result is not None
+    assert result.client_id == "test-client"
+
+
+@pytest.mark.asyncio
+async def test_get_client_not_found():
+    provider = _make_provider()
+    result = await provider.get_client("nonexistent")
+    assert result is None
+
+
+@pytest.mark.asyncio
+async def test_authorize_returns_microsoft_url():
+    provider = _make_provider()
+    client = _make_client()
+    params = AuthorizationParams(
+        state="csrf-state",
+        scopes=["mcp:tools"],
+        code_challenge="test-challenge",
+        redirect_uri=AnyUrl("http://localhost:3000/callback"),
+        redirect_uri_provided_explicitly=True,
+    )
+    url = await provider.authorize(client, params)
+    assert "login.microsoftonline.com" in url
+    assert "consumers" in url
+    assert len(provider.pending_flows) == 1
+
+
+@pytest.mark.asyncio
+async def test_authorize_stores_flow_context():
+    provider = _make_provider()
+    client = _make_client()
+    params = AuthorizationParams(
+        state="csrf-state",
+        scopes=["mcp:tools"],
+        code_challenge="test-challenge",
+        redirect_uri=AnyUrl("http://localhost:3000/callback"),
+        redirect_uri_provided_explicitly=True,
+    )
+    await provider.authorize(client, params)
+    flow = list(provider.pending_flows.values())[0]
+    assert flow["mcp_state"] == "csrf-state"
+    assert flow["mcp_code_challenge"] == "test-challenge"
+    assert flow["client_id"] == "test-client"
+
+
+@pytest.mark.asyncio
+async def test_load_authorization_code_found():
+    provider = _make_provider()
+    code_obj = AuthorizationCode(
+        code="test-code",
+        scopes=["mcp:tools"],
+        expires_at=time.time() + 300,
+        client_id="test-client",
+        code_challenge="challenge",
+        redirect_uri=AnyUrl("http://localhost:3000/callback"),
+        redirect_uri_provided_explicitly=True,
+    )
+    provider.auth_codes["test-code"] = (code_obj, "user@outlook.com")
+    client = _make_client()
+    result = await provider.load_authorization_code(client, "test-code")
+    assert result is not None
+    assert result.code == "test-code"
+
+
+@pytest.mark.asyncio
+async def test_load_authorization_code_expired():
+    provider = _make_provider()
+    code_obj = AuthorizationCode(
+        code="test-code",
+        scopes=["mcp:tools"],
+        expires_at=time.time() - 10,  # expired
+        client_id="test-client",
+        code_challenge="challenge",
+        redirect_uri=AnyUrl("http://localhost:3000/callback"),
+        redirect_uri_provided_explicitly=True,
+    )
+    provider.auth_codes["test-code"] = (code_obj, "user@outlook.com")
+    client = _make_client()
+    result = await provider.load_authorization_code(client, "test-code")
+    assert result is None
+
+
+@pytest.mark.asyncio
+async def test_exchange_authorization_code_issues_tokens():
+    provider = _make_provider()
+    code_obj = AuthorizationCode(
+        code="test-code",
+        scopes=["mcp:tools"],
+        expires_at=time.time() + 300,
+        client_id="test-client",
+        code_challenge="challenge",
+        redirect_uri=AnyUrl("http://localhost:3000/callback"),
+        redirect_uri_provided_explicitly=True,
+    )
+    provider.auth_codes["test-code"] = (code_obj, "user@outlook.com")
+    client = _make_client()
+    token = await provider.exchange_authorization_code(client, code_obj)
+    assert token.access_token
+    assert token.refresh_token
+    assert token.token_type.lower() == "bearer"
+    assert len(provider.access_tokens) == 1
+    assert len(provider.refresh_tokens) == 1
+
+
+@pytest.mark.asyncio
+async def test_load_access_token_found():
+    provider = _make_provider()
+    from mcp.server.auth.provider import AccessToken
+    at = AccessToken(
+        token="at-123",
+        client_id="test-client",
+        scopes=["mcp:tools"],
+        expires_at=int(time.time()) + 3600,
+    )
+    provider.access_tokens["at-123"] = (at, "user@outlook.com")
+    result = await provider.load_access_token("at-123")
+    assert result is not None
+    assert result.token == "at-123"
+
+
+@pytest.mark.asyncio
+async def test_load_access_token_expired():
+    provider = _make_provider()
+    from mcp.server.auth.provider import AccessToken
+    at = AccessToken(
+        token="at-expired",
+        client_id="test-client",
+        scopes=["mcp:tools"],
+        expires_at=int(time.time()) - 10,
+    )
+    provider.access_tokens["at-expired"] = (at, "user@outlook.com")
+    result = await provider.load_access_token("at-expired")
+    assert result is None
+
+
+@pytest.mark.asyncio
+async def test_get_microsoft_token_no_account():
+    provider = _make_provider()
+    with pytest.raises(RuntimeError, match="No cached Microsoft token"):
+        await provider.get_microsoft_token("unknown@outlook.com")
+
+
+@pytest.mark.asyncio
+async def test_revoke_token():
+    provider = _make_provider()
+    from mcp.server.auth.provider import AccessToken
+    at = AccessToken(
+        token="at-revoke",
+        client_id="test-client",
+        scopes=["mcp:tools"],
+        expires_at=int(time.time()) + 3600,
+    )
+    provider.access_tokens["at-revoke"] = (at, "user@outlook.com")
+    client = _make_client()
+    await provider.revoke_token(client, "access_token", "at-revoke")
+    assert "at-revoke" not in provider.access_tokens
+
+
+@pytest.mark.asyncio
+async def test_get_user_email_for_token():
+    provider = _make_provider()
+    from mcp.server.auth.provider import AccessToken
+    at = AccessToken(
+        token="at-email",
+        client_id="test-client",
+        scopes=["mcp:tools"],
+        expires_at=int(time.time()) + 3600,
+    )
+    provider.access_tokens["at-email"] = (at, "user@outlook.com")
+    assert provider.get_user_email_for_token("at-email") == "user@outlook.com"
+    assert provider.get_user_email_for_token("nonexistent") is None

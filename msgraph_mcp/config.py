@@ -13,3 +13,23 @@ ALLOWED_USERS: list[str] = [
 def is_user_allowed(email: str) -> bool:
     """Check whether a given email is in the allowed users list."""
     return email.strip().lower() in ALLOWED_USERS
+
+
+# OAuth configuration — loaded from environment variables.
+MSGRAPH_CLIENT_ID: str = os.environ.get("MSGRAPH_CLIENT_ID", "")
+MSGRAPH_CLIENT_SECRET: str = os.environ.get("MSGRAPH_CLIENT_SECRET", "")
+MSGRAPH_REDIRECT_URI: str = os.environ.get(
+    "MSGRAPH_REDIRECT_URI", "http://localhost:8000/auth/microsoft/callback"
+)
+MSGRAPH_SERVER_URL: str = os.environ.get(
+    "MSGRAPH_SERVER_URL", "http://localhost:8000"
+)
+
+MICROSOFT_AUTHORITY = "https://login.microsoftonline.com/consumers"
+GRAPH_SCOPES: list[str] = [
+    "User.Read",
+    "Mail.Read",
+    "Calendars.Read",
+    "Tasks.ReadWrite",
+    "Files.Read",
+]

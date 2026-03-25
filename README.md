@@ -31,15 +31,38 @@ uv run pytest
 ```
 msgraph_mcp/
   __init__.py   # Package metadata
-  server.py     # MCP server (FastMCP + streamable HTTP transport)
-  config.py     # Allowed users configuration
+  server.py     # MCP server (FastMCP + streamable HTTP + OAuth)
+  config.py     # Allowed users and OAuth configuration
+  auth.py       # MicrosoftOAuthProvider (MCP OAuth ↔ Microsoft OAuth bridge)
 tests/
+  conftest.py     # Shared test fixtures
   test_config.py  # Config tests
+  test_auth.py    # OAuth provider tests
 infra/
   main.bicep    # Azure App Service infrastructure
 .github/
   workflows/deploy.yml  # CI/CD pipeline
 ```
+
+## Authentication
+
+The server uses MCP-native OAuth to authenticate users with Microsoft personal accounts.
+
+### Prerequisites
+
+1. Register an app at [Azure Portal](https://portal.azure.com):
+   - Account type: "Personal Microsoft accounts only"
+   - Platform: Web
+   - Redirect URI: `http://localhost:8000/auth/microsoft/callback`
+   - Add Graph delegated permissions: `User.Read`, `Mail.Read`, `Calendars.Read`, `Tasks.ReadWrite`, `Files.Read`
+
+2. Set environment variables:
+   ```bash
+   export MSGRAPH_CLIENT_ID="your-client-id"
+   export MSGRAPH_CLIENT_SECRET="your-client-secret"
+   ```
+
+3. Copilot CLI auto-discovers auth via `/.well-known/oauth-protected-resource` — no special config needed.
 
 ## Deployment
 

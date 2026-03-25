@@ -5,7 +5,9 @@ description = "Microsoft Graph MCP integration"
 requires-python = ">=3.10"
 dependencies = [
     "gunicorn>=22.0.0",
+    "httpx>=0.28.1",
     "mcp>=1.26.0",
+    "msal>=1.35.1",
     "uvicorn[standard]>=0.30.0",
 ]
 
@@ -14,4 +16,5 @@ dev = [
     "pytest>=8.0",
     "httpx>=0.27.0",
     "ruff>=0.8.0",
+    "pytest-asyncio>=1.3.0",
 ]

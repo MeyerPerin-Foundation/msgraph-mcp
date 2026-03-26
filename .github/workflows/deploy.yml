@@ -65,7 +65,10 @@ jobs:
         with:
           resourceGroupName: msgraph-rg
           template: infra/main.bicep
-          parameters: appName=msgraph-mcp
+          parameters: >-
+            appName=msgraph-mcp
+            msgraphClientId=${{ secrets.MSGRAPH_CLIENT_ID }}
+            msgraphClientSecret=${{ secrets.MSGRAPH_CLIENT_SECRET }}
           scope: resourcegroup
 
       - name: Deploy to Azure Web App

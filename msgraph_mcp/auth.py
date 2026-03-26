@@ -1,7 +1,10 @@
 """OAuth authorization server provider bridging MCP OAuth with Microsoft OAuth."""
 
+from __future__ import annotations
+
 import secrets
 import time
+from typing import TYPE_CHECKING
 
 import msal
 from pydantic import AnyUrl
@@ -28,6 +31,9 @@ from msgraph_mcp.config import (
     is_user_allowed,
 )
 
+if TYPE_CHECKING:
+    from msgraph_mcp.store import CredentialStore
+
 # MCP auth code / token lifetime
 AUTH_CODE_LIFETIME_SECONDS = 300  # 5 minutes
 ACCESS_TOKEN_LIFETIME_SECONDS = 3600  # 1 hour
@@ -40,7 +46,8 @@ class MicrosoftOAuthProvider:
     Implements the OAuthAuthorizationServerProvider protocol from FastMCP.
     """
 
-    def __init__(self) -> None:
+    def __init__(self, store: CredentialStore | None = None) -> None:
+        self._store = store
         self.registered_clients: dict[str, OAuthClientInformationFull] = {}
         self.pending_flows: dict[str, dict] = {}
         self.auth_codes: dict[str, tuple[AuthorizationCode, str]] = {}  # code → (AuthorizationCode, user_email)
@@ -48,12 +55,26 @@ class MicrosoftOAuthProvider:
         self.refresh_tokens: dict[str, tuple[RefreshToken, str]] = {}  # token → (RefreshToken, user_email)
 
         self._msal_cache = msal.SerializableTokenCache()
+
+        # Hydrate from persistent store if available
+        if self._store:
+            clients, access_tokens, refresh_tokens = self._store.load_credentials()
+            self.registered_clients = clients
+            self.access_tokens = access_tokens
+            self.refresh_tokens = refresh_tokens
+            self._msal_cache = self._store.load_msal_cache()
+
         self._msal_app = msal.ConfidentialClientApplication(
             client_id=MSGRAPH_CLIENT_ID,
             client_credential=MSGRAPH_CLIENT_SECRET,
             authority=MICROSOFT_AUTHORITY,
             token_cache=self._msal_cache,
         )
+
+    def _persist(self) -> None:
+        """Persist all credentials if a store is configured."""
+        if self._store:
+            self._store.save_all(self)
 
     # --- Client Registration (RFC 7591) ---
 
@@ -64,6 +85,7 @@ class MicrosoftOAuthProvider:
     async def register_client(self, client_info: OAuthClientInformationFull) -> None:
         """Store an MCP client registration."""
         self.registered_clients[client_info.client_id] = client_info
+        self._persist()
 
     # --- Authorization ---
 
@@ -142,6 +164,9 @@ class MicrosoftOAuthProvider:
                 status_code=403,
             )
 
+        # Persist MSAL cache after successful token acquisition
+        self._persist()
+
         # Generate MCP authorization code (>=160 bits entropy)
         mcp_auth_code = secrets.token_urlsafe(32)
         now = time.time()
@@ -212,6 +237,8 @@ class MicrosoftOAuthProvider:
         self.access_tokens[access_token_str] = (access_token, user_email)
         self.refresh_tokens[refresh_token_str] = (refresh_token, user_email)
 
+        self._persist()
+
         return OAuthToken(
             access_token=access_token_str,
             token_type="bearer",
@@ -281,6 +308,8 @@ class MicrosoftOAuthProvider:
         self.access_tokens[new_access_str] = (new_access, user_email)
         self.refresh_tokens[new_refresh_str] = (new_refresh, user_email)
 
+        self._persist()
+
         return OAuthToken(
             access_token=new_access_str,
             token_type="bearer",
@@ -300,6 +329,7 @@ class MicrosoftOAuthProvider:
         """Revoke an MCP access or refresh token."""
         self.access_tokens.pop(token, None)
         self.refresh_tokens.pop(token, None)
+        self._persist()
 
     # --- Microsoft Graph Token Access (for tools) ---
 

@@ -19,6 +19,15 @@ def _make_provider():
     return MicrosoftOAuthProvider()
 
 
+def _make_provider_with_store(store=None):
+    """Create a fresh provider with reloaded config and optional store."""
+    import importlib
+    import msgraph_mcp.config as cfg
+    importlib.reload(cfg)
+    from msgraph_mcp.auth import MicrosoftOAuthProvider
+    return MicrosoftOAuthProvider(store=store)
+
+
 def _make_client(client_id: str = "test-client") -> OAuthClientInformationFull:
     return OAuthClientInformationFull(
         client_id=client_id,
@@ -223,3 +232,68 @@ async def test_get_user_email_for_token():
     provider.access_tokens["at-email"] = (at, "user@outlook.com")
     assert provider.get_user_email_for_token("at-email") == "user@outlook.com"
     assert provider.get_user_email_for_token("nonexistent") is None
+
+
+# --- Persistence round-trip tests (T020) ---
+
+
+@pytest.mark.asyncio
+async def test_token_persistence_round_trip(tmp_cache_dir):
+    """Issue tokens → save → create new provider with same store → verify tokens."""
+    from msgraph_mcp.store import CredentialStore
+
+    store = CredentialStore(tmp_cache_dir)
+    provider1 = _make_provider_with_store(store)
+
+    # Simulate issuing tokens
+    from mcp.server.auth.provider import AccessToken, RefreshToken
+    at = AccessToken(
+        token="at-persist",
+        client_id="test-client",
+        scopes=["mcp:tools"],
+        expires_at=int(time.time()) + 3600,
+    )
+    rt = RefreshToken(
+        token="rt-persist",
+        client_id="test-client",
+        scopes=["mcp:tools"],
+        expires_at=int(time.time()) + 86400,
+    )
+    provider1.access_tokens["at-persist"] = (at, "user@outlook.com")
+    provider1.refresh_tokens["rt-persist"] = (rt, "user@outlook.com")
+    store.save_all(provider1)
+
+    # Create a new provider from the same store
+    provider2 = _make_provider_with_store(CredentialStore(tmp_cache_dir))
+    assert "at-persist" in provider2.access_tokens
+    assert "rt-persist" in provider2.refresh_tokens
+    loaded_at, email = provider2.access_tokens["at-persist"]
+    assert loaded_at.token == "at-persist"
+    assert email == "user@outlook.com"
+
+    # Verify token is still valid via load_access_token
+    result = await provider2.load_access_token("at-persist")
+    assert result is not None
+    assert result.token == "at-persist"
+
+
+# --- Client registration persistence tests (T023) ---
+
+
+@pytest.mark.asyncio
+async def test_client_registration_persistence(tmp_cache_dir):
+    """Register client → save → create new provider → verify get_client works."""
+    from msgraph_mcp.store import CredentialStore
+
+    store = CredentialStore(tmp_cache_dir)
+    provider1 = _make_provider_with_store(store)
+
+    client = _make_client("persist-client")
+    await provider1.register_client(client)
+
+    # Create a new provider from the same store
+    provider2 = _make_provider_with_store(CredentialStore(tmp_cache_dir))
+    result = await provider2.get_client("persist-client")
+    assert result is not None
+    assert result.client_id == "persist-client"
+    assert result.client_name == "Test Client"

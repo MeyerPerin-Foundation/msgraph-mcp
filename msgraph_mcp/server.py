@@ -9,10 +9,12 @@ from mcp.server.fastmcp import FastMCP
 from pydantic import AnyHttpUrl
 
 from msgraph_mcp.auth import MicrosoftOAuthProvider
-from msgraph_mcp.config import MCP_REQUIRED_SCOPES, MSGRAPH_CLIENT_ID, MSGRAPH_SERVER_URL
+from msgraph_mcp.config import MCP_REQUIRED_SCOPES, MSGRAPH_CACHE_DIR, MSGRAPH_CLIENT_ID, MSGRAPH_SERVER_URL
+from msgraph_mcp.store import CredentialStore
 
-# Initialize the OAuth provider
-auth_provider = MicrosoftOAuthProvider()
+# Initialize the credential store and OAuth provider
+credential_store = CredentialStore(MSGRAPH_CACHE_DIR)
+auth_provider = MicrosoftOAuthProvider(store=credential_store)
 
 # Configure FastMCP with MCP-native OAuth (only if client ID is set)
 mcp_kwargs: dict = {"name": "msgraph-mcp", "host": "0.0.0.0", "port": 8000}

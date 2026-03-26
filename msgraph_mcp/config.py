@@ -1,6 +1,7 @@
 """Configuration for msgraph-mcp server."""
 
 import os
+from pathlib import Path
 
 # Comma-separated list of allowed Microsoft account emails.
 ALLOWED_USERS: list[str] = [
@@ -36,3 +37,8 @@ GRAPH_SCOPES: list[str] = [
     "Tasks.ReadWrite",
     "Files.Read",
 ]
+
+# Credential cache directory — override with MSGRAPH_CACHE_DIR env var.
+MSGRAPH_CACHE_DIR: Path = Path(
+    os.environ.get("MSGRAPH_CACHE_DIR", ".local/cache")
+)

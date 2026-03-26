@@ -1,6 +1,7 @@
 """Shared test fixtures for msgraph-mcp tests."""
 
 import os
+from pathlib import Path
 from unittest import mock
 
 import pytest
@@ -16,3 +17,11 @@ def mock_oauth_env():
         "MSGRAPH_SERVER_URL": "http://localhost:8000",
     }):
         yield
+
+
+@pytest.fixture()
+def tmp_cache_dir(tmp_path: Path) -> Path:
+    """Provide a temporary cache directory for credential store tests."""
+    cache_dir = tmp_path / "cache"
+    cache_dir.mkdir()
+    return cache_dir

@@ -53,6 +53,10 @@ resource webApp 'Microsoft.Web/sites@2024-04-01' = {
           name: 'MSGRAPH_SERVER_URL'
           value: 'https://${appName}.azurewebsites.net'
         }
+        {
+          name: 'MSGRAPH_CACHE_DIR'
+          value: '/home/msgraph-mcp-cache'
+        }
       ]
     }
   }

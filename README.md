@@ -34,10 +34,12 @@ msgraph_mcp/
   server.py     # MCP server (FastMCP + streamable HTTP + OAuth)
   config.py     # Allowed users and OAuth configuration
   auth.py       # MicrosoftOAuthProvider (MCP OAuth ↔ Microsoft OAuth bridge)
+  store.py      # Persistent credential cache (tokens, clients, MSAL cache)
 tests/
   conftest.py     # Shared test fixtures
   test_config.py  # Config tests
   test_auth.py    # OAuth provider tests
+  test_store.py   # Credential store tests
 infra/
   main.bicep    # Azure App Service infrastructure
 .github/
@@ -63,6 +65,21 @@ The server uses MCP-native OAuth to authenticate users with Microsoft personal a
    ```
 
 3. Copilot CLI auto-discovers auth via `/.well-known/oauth-protected-resource` — no special config needed.
+
+## Credential Persistence
+
+The server persists MCP tokens, client registrations, and the MSAL token cache to disk so that users do not need to re-authenticate after a server restart.
+
+| Variable | Default | Description |
+|---|---|---|
+| `MSGRAPH_CACHE_DIR` | `.local/cache` | Directory where credential files are stored. On Azure App Service this is set to `/home/msgraph-mcp-cache` (persistent across restarts). |
+
+Stored files:
+
+- `credentials.json` — MCP registered clients, access tokens, and refresh tokens.
+- `msal_cache.json` — Microsoft identity platform token cache.
+
+Both files are written atomically and with restrictive permissions (`0o600`). Expired tokens are automatically filtered out when loaded.
 
 ## Deployment
 

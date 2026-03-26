@@ -36,7 +36,7 @@ mcp = FastMCP(**mcp_kwargs)
 @mcp.tool()
 def echo(message: str) -> str:
     """Echo back the message sent by the user."""
-    return f"Echo: {message}"
+    return f"[MSGRAPH-MCP]: {message}"
 
 
 async def health(request: Request) -> JSONResponse:

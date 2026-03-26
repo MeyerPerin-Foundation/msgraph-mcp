@@ -10,6 +10,14 @@ param appServicePlanId string = '/subscriptions/333a3e2f-80b1-452b-8691-bcfdc679
 @description('Python version')
 param pythonVersion string = '3.13'
 
+@secure()
+@description('Microsoft Entra app registration client ID for OAuth')
+param msgraphClientId string
+
+@secure()
+@description('Microsoft Entra app registration client secret for OAuth')
+param msgraphClientSecret string
+
 resource webApp 'Microsoft.Web/sites@2024-04-01' = {
   name: appName
   location: location
@@ -31,11 +39,11 @@ resource webApp 'Microsoft.Web/sites@2024-04-01' = {
         }
         {
           name: 'MSGRAPH_CLIENT_ID'
-          value: ''
+          value: msgraphClientId
         }
         {
           name: 'MSGRAPH_CLIENT_SECRET'
-          value: ''
+          value: msgraphClientSecret
         }
         {
           name: 'MSGRAPH_REDIRECT_URI'

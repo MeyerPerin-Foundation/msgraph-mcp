@@ -471,6 +471,26 @@ async def send_message(
 
 
 @mcp.tool()
+async def delete_message(message_id: str) -> str:
+    """Delete a specific email message.
+
+    Args:
+        message_id: The ID of the message to delete.
+    """
+    try:
+        client = await _get_graph_client()
+    except (ValueError, RuntimeError) as exc:
+        return str(exc)
+
+    try:
+        await client.delete_message(message_id)
+    except GraphApiError as exc:
+        return exc.message
+
+    return f"Message deleted successfully. [id: {message_id}]"
+
+
+@mcp.tool()
 async def list_mail_folders() -> str:
     """List all mail folders for the authenticated user."""
     try:

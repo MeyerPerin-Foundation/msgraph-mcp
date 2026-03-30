@@ -49,14 +49,33 @@ def echo(message: str) -> str:
 
 
 async def _get_graph_client() -> GraphClient:
-    """Get a GraphClient authenticated as the current MCP user."""
+    """Get a GraphClient authenticated as the current MCP user.
+
+    Uses the auth context set by the bearer auth middleware to identify
+    the current user and obtain a Microsoft Graph token.
+    """
     access_token = get_access_token()
     if not access_token:
         raise ValueError("Authentication required")
+
     mcp_token = access_token.token
+
+    # Look up the user email for this MCP token.
+    # First try the direct dict lookup.
     user_email = auth_provider.get_user_email_for_token(mcp_token)
+
+    # Fallback: scan all access tokens for a matching token field.
+    # This handles cases where the dict key and token field diverge
+    # after serialization round-trips.
     if not user_email:
-        raise ValueError("No user found for token")
+        for _key, (at, email) in auth_provider.access_tokens.items():
+            if at.token == mcp_token:
+                user_email = email
+                break
+
+    if not user_email:
+        raise ValueError("No user found for token. Please re-authenticate.")
+
     ms_token = await auth_provider.get_microsoft_token(user_email)
     return GraphClient(ms_token)
 

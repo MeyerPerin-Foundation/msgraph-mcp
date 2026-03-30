@@ -26,20 +26,58 @@ uv run python -m msgraph_mcp.server
 uv run pytest
 ```
 
+## MCP Tools
+
+### Echo
+
+- **`echo(message)`** — Echo back a message (health-check / smoke-test).
+
+### Microsoft To-Do
+
+All To-Do tools require the user to be authenticated via OAuth.
+
+- **`list_task_lists()`** — List all Microsoft To-Do task lists with IDs and display names.
+- **`list_tasks(list_id)`** — List all tasks in a task list, showing title, status, importance, due date, and body.
+- **`create_task(title, list_id?, due_date?, body?)`** — Create a new task. Uses the default list when `list_id` is omitted. `due_date` must be in `YYYY-MM-DD` format.
+- **`update_task(list_id, task_id, title?, status?, due_date?, body?, importance?)`** — Update one or more fields on a task. Valid statuses: `notStarted`, `completed`. Valid importances: `low`, `normal`, `high`.
+- **`delete_task(list_id, task_id)`** — Delete a task from a task list.
+
+### Example Usage
+
+```
+> List my task lists
+→ calls list_task_lists()
+
+> Show tasks in list AAMkAD...
+→ calls list_tasks(list_id="AAMkAD...")
+
+> Create a task "Buy groceries" due 2025-01-20
+→ calls create_task(title="Buy groceries", due_date="2025-01-20")
+
+> Mark task AAkBT... in list AAMkAD... as completed
+→ calls update_task(list_id="AAMkAD...", task_id="AAkBT...", status="completed")
+
+> Delete task AAkBT... from list AAMkAD...
+→ calls delete_task(list_id="AAMkAD...", task_id="AAkBT...")
+```
+
 ## Project Structure
 
 ```
 msgraph_mcp/
   __init__.py   # Package metadata
-  server.py     # MCP server (FastMCP + streamable HTTP + OAuth)
+  server.py     # MCP server (FastMCP + streamable HTTP + OAuth + To-Do tools)
   config.py     # Allowed users and OAuth configuration
   auth.py       # MicrosoftOAuthProvider (MCP OAuth ↔ Microsoft OAuth bridge)
+  graph.py      # GraphClient — async Microsoft Graph API wrapper for To-Do
   store.py      # Persistent credential cache (tokens, clients, MSAL cache)
 tests/
   conftest.py     # Shared test fixtures
   test_config.py  # Config tests
   test_auth.py    # OAuth provider tests
   test_store.py   # Credential store tests
+  test_graph.py   # GraphClient unit tests
+  test_tools.py   # To-Do MCP tool tests
 infra/
   main.bicep    # Azure App Service infrastructure
 .github/

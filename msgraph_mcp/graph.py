@@ -1,8 +1,49 @@
-"""Microsoft Graph API client for To-Do operations."""
+"""Microsoft Graph API client for Microsoft Graph API operations."""
 
 from __future__ import annotations
 
+from html.parser import HTMLParser
+
 import httpx
+
+
+class _HTMLTextExtractor(HTMLParser):
+    """Extract plain text from HTML content."""
+
+    def __init__(self) -> None:
+        super().__init__()
+        self._text: list[str] = []
+
+    def handle_data(self, data: str) -> None:
+        self._text.append(data)
+
+    def get_text(self) -> str:
+        return " ".join("".join(self._text).split())
+
+
+def strip_html(html: str) -> str:
+    """Strip HTML tags and return plain text."""
+    extractor = _HTMLTextExtractor()
+    extractor.feed(html)
+    return extractor.get_text()
+
+
+def _extract_body_text(message: dict, max_length: int | None = None) -> str:
+    """Extract plain text from a message body.
+
+    Handles both ``text`` and ``html`` content types. If *max_length* is
+    given the result is truncated and ``"..."`` is appended.
+    """
+    body = message.get("body")
+    if not body:
+        return ""
+    content = body.get("content", "")
+    content_type = body.get("contentType", "text")
+    if content_type == "html":
+        content = strip_html(content)
+    if max_length and len(content) > max_length:
+        content = content[:max_length] + "..."
+    return content
 
 GRAPH_BASE_URL = "https://graph.microsoft.com/v1.0"
 
@@ -39,7 +80,7 @@ def _friendly_error(status_code: int, body: dict | None, resource: str = "resour
 
 
 class GraphClient:
-    """Thin async wrapper around the Microsoft Graph REST API for To-Do operations."""
+    """Thin async wrapper around the Microsoft Graph REST API."""
 
     def __init__(self, token: str) -> None:
         self._token = token
@@ -181,3 +222,61 @@ class GraphClient:
             f"/me/todo/lists/{list_id}/tasks/{task_id}",
             resource="task",
         )
+
+    # ── Mail operations ───────────────────────────────────────────────
+
+    async def get_mail_folders(self) -> list[dict]:
+        """Return all mail folders for the authenticated user."""
+        resp = await self._request("GET", "/me/mailFolders", resource="mail folder")
+        return resp.json().get("value", [])
+
+    async def get_messages(
+        self, folder_id: str | None = None, count: int = 10
+    ) -> list[dict]:
+        """Return recent messages, optionally filtered by folder."""
+        if folder_id:
+            path = f"/me/mailFolders/{folder_id}/messages?$top={count}&$orderby=receivedDateTime desc"
+        else:
+            path = f"/me/messages?$top={count}&$orderby=receivedDateTime desc"
+        resp = await self._request("GET", path, resource="message")
+        return resp.json().get("value", [])
+
+    async def get_message(self, message_id: str) -> dict:
+        """Return a single message by ID."""
+        resp = await self._request(
+            "GET", f"/me/messages/{message_id}", resource="message"
+        )
+        return resp.json()
+
+    async def search_messages(self, query: str, count: int = 10) -> list[dict]:
+        """Search messages using the Microsoft Graph ``$search`` operator."""
+        path = f'/me/messages?$search="{query}"&$top={count}'
+        resp = await self._request("GET", path, resource="message")
+        return resp.json().get("value", [])
+
+    async def send_message(
+        self,
+        to: list[str],
+        subject: str,
+        body: str,
+        cc: list[str] | None = None,
+    ) -> None:
+        """Send an email via ``POST /me/sendMail``.
+
+        Returns ``None`` — the Graph API responds with 202 and no body.
+        """
+        to_recipients = [
+            {"emailAddress": {"address": addr}} for addr in to
+        ]
+        cc_recipients = (
+            [{"emailAddress": {"address": addr}} for addr in cc] if cc else []
+        )
+        payload: dict = {
+            "message": {
+                "subject": subject,
+                "body": {"contentType": "text", "content": body},
+                "toRecipients": to_recipients,
+                "ccRecipients": cc_recipients,
+            }
+        }
+        await self._request("POST", "/me/sendMail", json=payload, resource="message")

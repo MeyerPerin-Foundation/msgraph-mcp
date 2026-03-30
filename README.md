@@ -42,6 +42,16 @@ All To-Do tools require the user to be authenticated via OAuth.
 - **`update_task(list_id, task_id, title?, status?, due_date?, body?, importance?)`** — Update one or more fields on a task. Valid statuses: `notStarted`, `completed`. Valid importances: `low`, `normal`, `high`.
 - **`delete_task(list_id, task_id)`** — Delete a task from a task list.
 
+### Email
+
+All email tools require the user to be authenticated via OAuth.
+
+- **`list_messages(folder_id?, count?)`** — List recent email messages with sender, subject, date, read status, and body preview. Optionally filter by folder ID. Default count is 10.
+- **`read_message(message_id)`** — Read a specific email with full details: sender, recipients, CC, date, importance, read status, and complete body.
+- **`search_messages(query, count?)`** — Search emails by keyword using Microsoft Graph `$search`. Returns matching messages with previews. Default count is 10.
+- **`send_message(to, subject, body, cc?)`** — Send an email. `to` and `cc` accept comma-separated addresses. Validates email format before sending.
+- **`list_mail_folders()`** — List all mail folders with display name, message count, and unread count.
+
 ### Example Usage
 
 ```
@@ -59,6 +69,24 @@ All To-Do tools require the user to be authenticated via OAuth.
 
 > Delete task AAkBT... from list AAMkAD...
 → calls delete_task(list_id="AAMkAD...", task_id="AAkBT...")
+
+> List my recent emails
+→ calls list_messages()
+
+> Show emails in folder AAMkAD...
+→ calls list_messages(folder_id="AAMkAD...")
+
+> Read email AAMkAG...
+→ calls read_message(message_id="AAMkAG...")
+
+> Search emails for "budget report"
+→ calls search_messages(query="budget report")
+
+> Send an email to john@example.com about the meeting
+→ calls send_message(to="john@example.com", subject="Meeting", body="...")
+
+> List my mail folders
+→ calls list_mail_folders()
 ```
 
 ## Project Structure
@@ -66,10 +94,10 @@ All To-Do tools require the user to be authenticated via OAuth.
 ```
 msgraph_mcp/
   __init__.py   # Package metadata
-  server.py     # MCP server (FastMCP + streamable HTTP + OAuth + To-Do tools)
+  server.py     # MCP server (FastMCP + streamable HTTP + OAuth + To-Do + Email tools)
   config.py     # Allowed users and OAuth configuration
   auth.py       # MicrosoftOAuthProvider (MCP OAuth ↔ Microsoft OAuth bridge)
-  graph.py      # GraphClient — async Microsoft Graph API wrapper for To-Do
+  graph.py      # GraphClient — async Microsoft Graph API wrapper for To-Do and Email
   store.py      # Persistent credential cache (tokens, clients, MSAL cache)
 tests/
   conftest.py     # Shared test fixtures
@@ -94,7 +122,7 @@ The server uses MCP-native OAuth to authenticate users with Microsoft personal a
    - Account type: "Personal Microsoft accounts only"
    - Platform: Web
    - Redirect URI: `http://localhost:8000/auth/microsoft/callback`
-   - Add Graph delegated permissions: `User.Read`, `Mail.Read`, `Calendars.Read`, `Tasks.ReadWrite`, `Files.Read`
+   - Add Graph delegated permissions: `User.Read`, `Mail.Read`, `Mail.Send`, `Calendars.Read`, `Tasks.ReadWrite`, `Files.Read`
 
 2. Set environment variables:
    ```bash

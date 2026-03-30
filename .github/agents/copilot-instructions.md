@@ -1,6 +1,6 @@
 # msgraph-mcp Development Guidelines
 
-Auto-generated from all feature plans. Last updated: 2026-03-29
+Auto-generated from all feature plans. Last updated: 2026-03-30
 
 ## Active Technologies
 - Python 3.13 + mcp 1.26.0, msal 1.35.1, Pydantic v2, Starlette (001-persistent-credentials)
@@ -27,9 +27,9 @@ cd src; pytest; ruff check .
 Python 3.13: Follow standard conventions
 
 ## Recent Changes
+- 003-email-tools: Added Python 3.13 + mcp 1.26.0, httpx, Pydantic v2, Starlette
 - 002-todo-crud: Added Python 3.13 + mcp 1.26.0, httpx, Pydantic v2, Starlette
 - 002-todo-crud: Added Python 3.13 + mcp 1.26.0, httpx, Pydantic v2, Starlette
-- 001-persistent-credentials: Added Python 3.13 + mcp 1.26.0, msal 1.35.1, Pydantic v2, Starlette
 
 
 <!-- MANUAL ADDITIONS START -->

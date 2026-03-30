@@ -7,7 +7,7 @@ from unittest.mock import AsyncMock, patch
 import httpx
 import pytest
 
-from msgraph_mcp.graph import GRAPH_BASE_URL, GraphApiError, GraphClient
+from msgraph_mcp.graph import GRAPH_BASE_URL, GraphApiError, GraphClient, _extract_body_text, strip_html
 
 
 # ── Helpers ───────────────────────────────────────────────────────────
@@ -305,3 +305,213 @@ class TestDeleteTask:
         with pytest.raises(GraphApiError) as exc_info:
             await client.delete_task("list1", "bad-id")
         assert exc_info.value.status_code == 404
+
+
+# ── strip_html ────────────────────────────────────────────────────────
+
+
+class TestStripHtml:
+    def test_simple_html(self):
+        assert strip_html("<p>Hello <b>world</b></p>") == "Hello world"
+
+    def test_nested_tags(self):
+        html = "<div><ul><li>Item 1</li><li>Item 2</li></ul></div>"
+        result = strip_html(html)
+        assert "Item 1" in result
+        assert "Item 2" in result
+
+    def test_empty_input(self):
+        assert strip_html("") == ""
+
+    def test_plain_text_passthrough(self):
+        assert strip_html("no tags here") == "no tags here"
+
+
+# ── _extract_body_text ────────────────────────────────────────────────
+
+
+class TestExtractBodyText:
+    def test_plain_text_body(self):
+        msg = {"body": {"contentType": "text", "content": "Hello world"}}
+        assert _extract_body_text(msg) == "Hello world"
+
+    def test_html_body(self):
+        msg = {"body": {"contentType": "html", "content": "<p>Hello</p>"}}
+        assert _extract_body_text(msg) == "Hello"
+
+    def test_truncation(self):
+        long_text = "A" * 600
+        msg = {"body": {"contentType": "text", "content": long_text}}
+        result = _extract_body_text(msg, max_length=500)
+        assert len(result) == 503  # 500 + "..."
+        assert result.endswith("...")
+
+    def test_no_truncation_when_short(self):
+        msg = {"body": {"contentType": "text", "content": "Short"}}
+        result = _extract_body_text(msg, max_length=500)
+        assert result == "Short"
+
+    def test_missing_body(self):
+        assert _extract_body_text({}) == ""
+
+    def test_none_body(self):
+        assert _extract_body_text({"body": None}) == ""
+
+
+# ── get_mail_folders ──────────────────────────────────────────────────
+
+
+class TestGetMailFolders:
+    @pytest.mark.asyncio
+    async def test_returns_folders(self):
+        client = GraphClient("tok")
+        sample = [
+            {"id": "f1", "displayName": "Inbox", "totalItemCount": 100, "unreadItemCount": 5},
+            {"id": "f2", "displayName": "Sent Items", "totalItemCount": 50, "unreadItemCount": 0},
+        ]
+        client._request = AsyncMock(return_value=_mock_response(200, {"value": sample}))
+        result = await client.get_mail_folders()
+        assert result == sample
+
+    @pytest.mark.asyncio
+    async def test_empty_folders(self):
+        client = GraphClient("tok")
+        client._request = AsyncMock(return_value=_mock_response(200, {"value": []}))
+        result = await client.get_mail_folders()
+        assert result == []
+
+
+# ── get_messages ──────────────────────────────────────────────────────
+
+
+class TestGetMessages:
+    @pytest.mark.asyncio
+    async def test_inbox_messages(self):
+        client = GraphClient("tok")
+        sample = [{"id": "m1", "subject": "Hello"}]
+        client._request = AsyncMock(return_value=_mock_response(200, {"value": sample}))
+        result = await client.get_messages()
+        assert result == sample
+        call_args = client._request.call_args
+        path = call_args[0][1]
+        assert "/me/messages?" in path
+        assert "$orderby=receivedDateTime" in path
+
+    @pytest.mark.asyncio
+    async def test_folder_messages(self):
+        client = GraphClient("tok")
+        sample = [{"id": "m2", "subject": "Folder msg"}]
+        client._request = AsyncMock(return_value=_mock_response(200, {"value": sample}))
+        result = await client.get_messages(folder_id="f1", count=5)
+        assert result == sample
+        call_args = client._request.call_args
+        path = call_args[0][1]
+        assert "/me/mailFolders/f1/messages?" in path
+        assert "$top=5" in path
+
+    @pytest.mark.asyncio
+    async def test_empty_messages(self):
+        client = GraphClient("tok")
+        client._request = AsyncMock(return_value=_mock_response(200, {"value": []}))
+        result = await client.get_messages()
+        assert result == []
+
+
+# ── get_message ───────────────────────────────────────────────────────
+
+
+class TestGetMessage:
+    @pytest.mark.asyncio
+    async def test_returns_message(self):
+        client = GraphClient("tok")
+        msg = {"id": "m1", "subject": "Test", "body": {"contentType": "text", "content": "Hi"}}
+        client._request = AsyncMock(return_value=_mock_response(200, msg))
+        result = await client.get_message("m1")
+        assert result == msg
+
+    @pytest.mark.asyncio
+    async def test_not_found(self):
+        client = GraphClient("tok")
+        client._request = AsyncMock(
+            side_effect=GraphApiError(404, "Not found: the specified message does not exist.")
+        )
+        with pytest.raises(GraphApiError) as exc_info:
+            await client.get_message("bad-id")
+        assert exc_info.value.status_code == 404
+
+
+# ── search_messages ───────────────────────────────────────────────────
+
+
+class TestSearchMessages:
+    @pytest.mark.asyncio
+    async def test_returns_results(self):
+        client = GraphClient("tok")
+        sample = [{"id": "m1", "subject": "Budget"}]
+        client._request = AsyncMock(return_value=_mock_response(200, {"value": sample}))
+        result = await client.search_messages("budget")
+        assert result == sample
+        call_args = client._request.call_args
+        path = call_args[0][1]
+        assert '$search="budget"' in path
+        assert "$orderby" not in path
+
+    @pytest.mark.asyncio
+    async def test_empty_results(self):
+        client = GraphClient("tok")
+        client._request = AsyncMock(return_value=_mock_response(200, {"value": []}))
+        result = await client.search_messages("nonexistent")
+        assert result == []
+
+
+# ── send_message ──────────────────────────────────────────────────────
+
+
+class TestSendMessage:
+    @pytest.mark.asyncio
+    async def test_send_returns_none(self):
+        client = GraphClient("tok")
+        client._request = AsyncMock(return_value=_mock_response(202, None))
+        result = await client.send_message(
+            to=["user@example.com"], subject="Hi", body="Hello"
+        )
+        assert result is None
+
+    @pytest.mark.asyncio
+    async def test_send_with_cc(self):
+        client = GraphClient("tok")
+        client._request = AsyncMock(return_value=_mock_response(202, None))
+        await client.send_message(
+            to=["a@example.com"],
+            subject="Hi",
+            body="Hello",
+            cc=["b@example.com"],
+        )
+        call_args = client._request.call_args
+        payload = call_args.kwargs.get("json") or call_args[1].get("json")
+        assert len(payload["message"]["ccRecipients"]) == 1
+        assert payload["message"]["ccRecipients"][0]["emailAddress"]["address"] == "b@example.com"
+
+    @pytest.mark.asyncio
+    async def test_send_payload_structure(self):
+        client = GraphClient("tok")
+        client._request = AsyncMock(return_value=_mock_response(202, None))
+        await client.send_message(
+            to=["a@test.com", "b@test.com"], subject="Subj", body="Body"
+        )
+        call_args = client._request.call_args
+        payload = call_args.kwargs.get("json") or call_args[1].get("json")
+        msg = payload["message"]
+        assert msg["subject"] == "Subj"
+        assert msg["body"] == {"contentType": "text", "content": "Body"}
+        assert len(msg["toRecipients"]) == 2
+
+    @pytest.mark.asyncio
+    async def test_send_403_error(self):
+        client = GraphClient("tok")
+        client._request = AsyncMock(
+            side_effect=GraphApiError(403, "Access denied. The required permissions may not be granted.")
+        )
+        with pytest.raises(GraphApiError) as exc_info:
+            await client.send_message(to=["a@test.com"], subject="X", body="Y")
+        assert exc_info.value.status_code == 403

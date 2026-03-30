@@ -13,7 +13,7 @@ from pydantic import AnyHttpUrl
 
 from msgraph_mcp.auth import MicrosoftOAuthProvider
 from msgraph_mcp.config import MCP_REQUIRED_SCOPES, MSGRAPH_CACHE_DIR, MSGRAPH_CLIENT_ID, MSGRAPH_SERVER_URL
-from msgraph_mcp.graph import GraphApiError, GraphClient
+from msgraph_mcp.graph import GraphApiError, GraphClient, _extract_body_text
 from msgraph_mcp.store import CredentialStore
 
 # Initialize the credential store and OAuth provider
@@ -268,6 +268,230 @@ async def delete_task(list_id: str, task_id: str) -> str:
         return exc.message
 
     return f"Task deleted successfully. [id: {task_id}]"
+
+
+# ── Email tools ───────────────────────────────────────────────────────
+
+
+def _format_sender(msg: dict) -> str:
+    """Format a message sender as 'Name <address>' or just the address."""
+    email_obj = msg.get("from", {}).get("emailAddress", {})
+    name = email_obj.get("name", "")
+    address = email_obj.get("address", "unknown")
+    return f"{name} <{address}>" if name else address
+
+
+def _format_recipients(recipients: list[dict]) -> str:
+    """Format a list of recipient objects as a comma-separated string."""
+    parts: list[str] = []
+    for r in recipients:
+        addr = r.get("emailAddress", {}).get("address", "unknown")
+        parts.append(addr)
+    return ", ".join(parts)
+
+
+@mcp.tool()
+async def list_messages(folder_id: str | None = None, count: int = 10) -> str:
+    """List recent email messages from the user's mailbox.
+
+    Args:
+        folder_id: Optional mail folder ID. Lists inbox messages if omitted.
+        count: Number of messages to return (default 10).
+    """
+    try:
+        client = await _get_graph_client()
+    except (ValueError, RuntimeError) as exc:
+        return str(exc)
+
+    try:
+        messages = await client.get_messages(folder_id=folder_id, count=count)
+    except GraphApiError as exc:
+        return exc.message
+
+    if not messages:
+        return "No messages found."
+
+    lines = ["Messages:", ""]
+    for i, msg in enumerate(messages, 1):
+        is_read = msg.get("isRead", False)
+        status = "Read" if is_read else "Unread"
+        sender = _format_sender(msg)
+        subject = msg.get("subject", "(no subject)")
+        date = msg.get("receivedDateTime", "")
+        preview = _extract_body_text(msg, max_length=500)
+        msg_id = msg.get("id", "?")
+
+        lines.append(f"{i}. [{status}] From: {sender}")
+        lines.append(f"   Subject: {subject}")
+        lines.append(f"   Date: {date}")
+        if preview:
+            lines.append(f"   Preview: {preview}")
+        lines.append(f"   [id: {msg_id}]")
+        lines.append("")
+    return "\n".join(lines)
+
+
+@mcp.tool()
+async def read_message(message_id: str) -> str:
+    """Read a specific email message with full details.
+
+    Args:
+        message_id: The ID of the message to read.
+    """
+    try:
+        client = await _get_graph_client()
+    except (ValueError, RuntimeError) as exc:
+        return str(exc)
+
+    try:
+        msg = await client.get_message(message_id)
+    except GraphApiError as exc:
+        return exc.message
+
+    subject = msg.get("subject", "(no subject)")
+    sender = _format_sender(msg)
+    to_list = _format_recipients(msg.get("toRecipients", []))
+    cc_list = _format_recipients(msg.get("ccRecipients", []))
+    date = msg.get("receivedDateTime", "")
+    importance = msg.get("importance", "normal")
+    is_read = msg.get("isRead", False)
+    status = "Read" if is_read else "Unread"
+    body_text = _extract_body_text(msg)
+
+    lines = [
+        f"Subject: {subject}",
+        f"From: {sender}",
+        f"To: {to_list}",
+    ]
+    if cc_list:
+        lines.append(f"CC: {cc_list}")
+    lines.extend([
+        f"Date: {date}",
+        f"Importance: {importance}",
+        f"Status: {status}",
+        "",
+        "Body:",
+        body_text,
+    ])
+    return "\n".join(lines)
+
+
+@mcp.tool()
+async def search_messages(query: str, count: int = 10) -> str:
+    """Search email messages by keyword.
+
+    Args:
+        query: Search query string.
+        count: Maximum number of results to return (default 10).
+    """
+    try:
+        client = await _get_graph_client()
+    except (ValueError, RuntimeError) as exc:
+        return str(exc)
+
+    try:
+        messages = await client.search_messages(query, count=count)
+    except GraphApiError as exc:
+        return exc.message
+
+    if not messages:
+        return f'No messages found matching "{query}".'
+
+    lines = ["Messages:", ""]
+    for i, msg in enumerate(messages, 1):
+        is_read = msg.get("isRead", False)
+        status = "Read" if is_read else "Unread"
+        sender = _format_sender(msg)
+        subject = msg.get("subject", "(no subject)")
+        date = msg.get("receivedDateTime", "")
+        preview = _extract_body_text(msg, max_length=500)
+        msg_id = msg.get("id", "?")
+
+        lines.append(f"{i}. [{status}] From: {sender}")
+        lines.append(f"   Subject: {subject}")
+        lines.append(f"   Date: {date}")
+        if preview:
+            lines.append(f"   Preview: {preview}")
+        lines.append(f"   [id: {msg_id}]")
+        lines.append("")
+    return "\n".join(lines)
+
+
+@mcp.tool()
+async def send_message(
+    to: str,
+    subject: str,
+    body: str,
+    cc: str | None = None,
+) -> str:
+    """Send an email message.
+
+    Args:
+        to: Comma-separated list of recipient email addresses.
+        subject: Email subject line.
+        body: Email body text.
+        cc: Optional comma-separated list of CC email addresses.
+    """
+    if not to or not to.strip():
+        return "Validation error: 'to' is required and cannot be empty."
+    if not subject or not subject.strip():
+        return "Validation error: 'subject' is required and cannot be empty."
+    if not body or not body.strip():
+        return "Validation error: 'body' is required and cannot be empty."
+
+    to_list = [addr.strip() for addr in to.split(",") if addr.strip()]
+    cc_list = [addr.strip() for addr in cc.split(",") if addr.strip()] if cc else []
+
+    for addr in to_list + cc_list:
+        if "@" not in addr:
+            return f"Validation error: '{addr}' is not a valid email address."
+
+    try:
+        client = await _get_graph_client()
+    except (ValueError, RuntimeError) as exc:
+        return str(exc)
+
+    try:
+        await client.send_message(
+            to=to_list, subject=subject.strip(), body=body.strip(), cc=cc_list or None
+        )
+    except GraphApiError as exc:
+        return exc.message
+
+    lines = [
+        "Email sent successfully.",
+        f"To: {', '.join(to_list)}",
+    ]
+    if cc_list:
+        lines.append(f"CC: {', '.join(cc_list)}")
+    lines.append(f"Subject: {subject.strip()}")
+    return "\n".join(lines)
+
+
+@mcp.tool()
+async def list_mail_folders() -> str:
+    """List all mail folders for the authenticated user."""
+    try:
+        client = await _get_graph_client()
+    except (ValueError, RuntimeError) as exc:
+        return str(exc)
+
+    try:
+        folders = await client.get_mail_folders()
+    except GraphApiError as exc:
+        return exc.message
+
+    if not folders:
+        return "No mail folders found."
+
+    lines = ["Mail Folders:", ""]
+    for f in folders:
+        name = f.get("displayName", "Untitled")
+        folder_id = f.get("id", "?")
+        total = f.get("totalItemCount", 0)
+        unread = f.get("unreadItemCount", 0)
+        lines.append(f"- {name} ({total} messages, {unread} unread)  [id: {folder_id}]")
+    return "\n".join(lines)
 
 
 async def health(request: Request) -> JSONResponse:

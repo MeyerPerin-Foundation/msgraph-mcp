@@ -275,7 +275,8 @@ async def delete_task(list_id: str, task_id: str) -> str:
 
 def _format_sender(msg: dict) -> str:
     """Format a message sender as 'Name <address>' or just the address."""
-    email_obj = msg.get("from", {}).get("emailAddress", {})
+    from_field = msg.get("from") or {}
+    email_obj = from_field.get("emailAddress") or {}
     name = email_obj.get("name", "")
     address = email_obj.get("address", "unknown")
     return f"{name} <{address}>" if name else address
@@ -285,7 +286,8 @@ def _format_recipients(recipients: list[dict]) -> str:
     """Format a list of recipient objects as a comma-separated string."""
     parts: list[str] = []
     for r in recipients:
-        addr = r.get("emailAddress", {}).get("address", "unknown")
+        email_obj = (r or {}).get("emailAddress") or {}
+        addr = email_obj.get("address", "unknown")
         parts.append(addr)
     return ", ".join(parts)
 

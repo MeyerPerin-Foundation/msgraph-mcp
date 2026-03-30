@@ -5,6 +5,7 @@ from __future__ import annotations
 import secrets
 import time
 from typing import TYPE_CHECKING
+from urllib.parse import urlparse
 
 import msal
 from pydantic import AnyUrl
@@ -20,6 +21,7 @@ from mcp.server.auth.provider import (
     RefreshToken,
     TokenError,
 )
+from mcp.shared.auth import InvalidRedirectUriError
 
 from msgraph_mcp.config import (
     GRAPH_SCOPES,
@@ -33,6 +35,49 @@ from msgraph_mcp.config import (
 
 if TYPE_CHECKING:
     from msgraph_mcp.store import CredentialStore
+
+# Loopback hosts per RFC 8252 §7.3
+_LOOPBACK_HOSTS = frozenset({"127.0.0.1", "::1", "localhost"})
+
+
+def _is_loopback_match(registered: AnyUrl, candidate: AnyUrl) -> bool:
+    """Check if two URIs match per RFC 8252 §7.3 (loopback, port-agnostic).
+
+    For loopback redirect URIs the authorization server MUST allow any
+    port to be specified at the time of the request.
+    """
+    reg = urlparse(str(registered))
+    cand = urlparse(str(candidate))
+    return (
+        reg.scheme == cand.scheme
+        and (reg.hostname or "") in _LOOPBACK_HOSTS
+        and (cand.hostname or "") in _LOOPBACK_HOSTS
+        and reg.path.rstrip("/") == cand.path.rstrip("/")
+    )
+
+
+class LoopbackAwareClientInfo(OAuthClientInformationFull):
+    """OAuthClientInformationFull subclass that accepts any port on loopback
+    redirect URIs, per RFC 8252 §7.3.
+
+    MCP clients like Copilot CLI use ephemeral ports for their loopback
+    redirect URI.  The port changes on every restart, so the exact-match
+    check in the base class always fails after the first session.
+    """
+
+    def validate_redirect_uri(self, redirect_uri: AnyUrl | None) -> AnyUrl:
+        if redirect_uri is not None and self.redirect_uris:
+            # Fast exact match (most common path)
+            if redirect_uri in self.redirect_uris:
+                return redirect_uri
+            # RFC 8252 §7.3: allow any port on loopback addresses
+            for registered in self.redirect_uris:
+                if _is_loopback_match(registered, redirect_uri):
+                    return redirect_uri
+            raise InvalidRedirectUriError(
+                f"Redirect URI '{redirect_uri}' not registered for client"
+            )
+        return super().validate_redirect_uri(redirect_uri)
 
 # MCP auth code / token lifetime
 AUTH_CODE_LIFETIME_SECONDS = 300  # 5 minutes
@@ -79,8 +124,18 @@ class MicrosoftOAuthProvider:
     # --- Client Registration (RFC 7591) ---
 
     async def get_client(self, client_id: str) -> OAuthClientInformationFull | None:
-        """Retrieve a registered MCP client."""
-        return self.registered_clients.get(client_id)
+        """Retrieve a registered MCP client.
+
+        Returns a LoopbackAwareClientInfo instance so that loopback
+        redirect URIs with different ephemeral ports are accepted
+        (RFC 8252 §7.3).
+        """
+        client = self.registered_clients.get(client_id)
+        if client is None:
+            return None
+        return LoopbackAwareClientInfo.model_validate(
+            client.model_dump(mode="json")
+        )
 
     async def register_client(self, client_info: OAuthClientInformationFull) -> None:
         """Store an MCP client registration."""

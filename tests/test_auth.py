@@ -234,6 +234,83 @@ async def test_get_user_email_for_token():
     assert provider.get_user_email_for_token("nonexistent") is None
 
 
+# --- Loopback redirect URI tests (RFC 8252 §7.3) ---
+
+
+@pytest.mark.asyncio
+async def test_get_client_returns_loopback_aware_instance():
+    """get_client should return a LoopbackAwareClientInfo instance."""
+    from msgraph_mcp.auth import LoopbackAwareClientInfo
+
+    provider = _make_provider()
+    client = OAuthClientInformationFull(
+        client_id="loopback-client",
+        client_name="Loopback Client",
+        redirect_uris=[AnyUrl("http://127.0.0.1:54321/")],
+    )
+    await provider.register_client(client)
+    result = await provider.get_client("loopback-client")
+    assert isinstance(result, LoopbackAwareClientInfo)
+
+
+@pytest.mark.asyncio
+async def test_loopback_redirect_uri_different_port_accepted():
+    """A loopback redirect URI with a different port should be accepted."""
+    from msgraph_mcp.auth import LoopbackAwareClientInfo
+
+    client = LoopbackAwareClientInfo(
+        client_id="loopback-client",
+        client_name="Test",
+        redirect_uris=[AnyUrl("http://127.0.0.1:54321/")],
+    )
+    # Different port should still pass validation
+    result = client.validate_redirect_uri(AnyUrl("http://127.0.0.1:64934/"))
+    assert str(result) == "http://127.0.0.1:64934/"
+
+
+@pytest.mark.asyncio
+async def test_loopback_redirect_uri_exact_match_still_works():
+    """Exact redirect URI match should still work as before."""
+    from msgraph_mcp.auth import LoopbackAwareClientInfo
+
+    client = LoopbackAwareClientInfo(
+        client_id="loopback-client",
+        client_name="Test",
+        redirect_uris=[AnyUrl("http://127.0.0.1:54321/")],
+    )
+    result = client.validate_redirect_uri(AnyUrl("http://127.0.0.1:54321/"))
+    assert str(result) == "http://127.0.0.1:54321/"
+
+
+@pytest.mark.asyncio
+async def test_loopback_localhost_different_port_accepted():
+    """localhost with a different port should be accepted."""
+    from msgraph_mcp.auth import LoopbackAwareClientInfo
+
+    client = LoopbackAwareClientInfo(
+        client_id="loopback-client",
+        client_name="Test",
+        redirect_uris=[AnyUrl("http://localhost:3000/callback")],
+    )
+    result = client.validate_redirect_uri(AnyUrl("http://localhost:9999/callback"))
+    assert str(result) == "http://localhost:9999/callback"
+
+
+@pytest.mark.asyncio
+async def test_loopback_non_loopback_uri_rejected():
+    """Non-loopback URIs with wrong port should still be rejected."""
+    from msgraph_mcp.auth import LoopbackAwareClientInfo
+    from mcp.shared.auth import InvalidRedirectUriError
+
+    client = LoopbackAwareClientInfo(
+        client_id="test-client",
+        client_name="Test",
+        redirect_uris=[AnyUrl("http://example.com:3000/callback")],
+    )
+    with pytest.raises(InvalidRedirectUriError):
+        client.validate_redirect_uri(AnyUrl("http://example.com:9999/callback"))
+
+
 # --- Persistence round-trip tests (T020) ---
 
 

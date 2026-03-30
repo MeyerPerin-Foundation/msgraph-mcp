@@ -254,6 +254,12 @@ class GraphClient:
         resp = await self._request("GET", path, resource="message")
         return resp.json().get("value", [])
 
+    async def delete_message(self, message_id: str) -> None:
+        """Delete a message by ID."""
+        await self._request(
+            "DELETE", f"/me/messages/{message_id}", resource="message"
+        )
+
     async def send_message(
         self,
         to: list[str],

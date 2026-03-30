@@ -32,7 +32,7 @@ MCP_REQUIRED_SCOPES: list[str] = ["mcp:tools"]
 MICROSOFT_AUTHORITY = "https://login.microsoftonline.com/consumers"
 GRAPH_SCOPES: list[str] = [
     "User.Read",
-    "Mail.Read",
+    "Mail.ReadWrite",
     "Mail.Send",
     "Calendars.Read",
     "Tasks.ReadWrite",

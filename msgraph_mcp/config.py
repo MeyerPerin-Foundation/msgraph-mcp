@@ -34,7 +34,7 @@ GRAPH_SCOPES: list[str] = [
     "User.Read",
     "Mail.ReadWrite",
     "Mail.Send",
-    "Calendars.Read",
+    "Calendars.ReadWrite",
     "Tasks.ReadWrite",
     "Files.Read",
 ]

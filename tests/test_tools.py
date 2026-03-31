@@ -808,3 +808,529 @@ class TestListMailFolders:
                 result = await list_mail_folders()
 
         assert "re-authenticate" in result.lower()
+
+
+# ── Sample calendar data ─────────────────────────────────────────────
+
+SAMPLE_CALENDARS = [
+    {"id": "cal1", "name": "Calendar", "isDefaultCalendar": True, "color": "auto"},
+    {"id": "cal2", "name": "Work", "isDefaultCalendar": False, "color": "lightBlue"},
+]
+
+SAMPLE_EVENTS = [
+    {
+        "id": "evt1",
+        "subject": "Team Standup",
+        "start": {"dateTime": "2026-04-01T09:00:00.0000000", "timeZone": "UTC"},
+        "end": {"dateTime": "2026-04-01T09:30:00.0000000", "timeZone": "UTC"},
+        "location": {"displayName": "Room A"},
+        "attendees": [
+            {"emailAddress": {"address": "alice@example.com"}, "type": "required", "status": {"response": "accepted"}},
+        ],
+        "organizer": {"emailAddress": {"address": "org@example.com"}},
+        "isAllDay": False,
+        "body": {"contentType": "text", "content": "Daily standup meeting."},
+        "recurrence": None,
+        "onlineMeeting": None,
+    },
+    {
+        "id": "evt2",
+        "subject": "Lunch",
+        "start": {"dateTime": "2026-04-01T12:00:00.0000000", "timeZone": "UTC"},
+        "end": {"dateTime": "2026-04-01T13:00:00.0000000", "timeZone": "UTC"},
+        "location": {"displayName": ""},
+        "attendees": [],
+        "organizer": {"emailAddress": {"address": "org@example.com"}},
+        "isAllDay": False,
+        "body": {"contentType": "text", "content": ""},
+        "recurrence": None,
+        "onlineMeeting": None,
+    },
+]
+
+
+# ── list_calendars ───────────────────────────────────────────────────
+
+
+class TestListCalendars:
+    @pytest.mark.asyncio
+    async def test_list_calendars_success(self):
+        from msgraph_mcp.server import list_calendars
+
+        patches = _patch_auth()
+        with patches["get_access_token"], patches["get_user_email"], patches["get_microsoft_token"]:
+            with patch("msgraph_mcp.server.GraphClient") as MockGC:
+                instance = AsyncMock()
+                instance.get_calendars = AsyncMock(return_value=SAMPLE_CALENDARS)
+                MockGC.return_value = instance
+
+                result = await list_calendars()
+
+        assert "Calendar" in result
+        assert "Work" in result
+        assert "(default)" in result
+        assert "cal1" in result
+        assert "cal2" in result
+
+    @pytest.mark.asyncio
+    async def test_list_calendars_empty(self):
+        from msgraph_mcp.server import list_calendars
+
+        patches = _patch_auth()
+        with patches["get_access_token"], patches["get_user_email"], patches["get_microsoft_token"]:
+            with patch("msgraph_mcp.server.GraphClient") as MockGC:
+                instance = AsyncMock()
+                instance.get_calendars = AsyncMock(return_value=[])
+                MockGC.return_value = instance
+
+                result = await list_calendars()
+
+        assert "No calendars found." in result
+
+    @pytest.mark.asyncio
+    async def test_list_calendars_auth_failure(self):
+        from msgraph_mcp.server import list_calendars
+
+        with patch("msgraph_mcp.server.get_access_token", return_value=None):
+            result = await list_calendars()
+
+        assert "Authentication required" in result
+
+
+# ── list_events ──────────────────────────────────────────────────────
+
+
+class TestListEvents:
+    @pytest.mark.asyncio
+    async def test_list_events_no_filter(self):
+        from msgraph_mcp.server import list_events
+
+        patches = _patch_auth()
+        with patches["get_access_token"], patches["get_user_email"], patches["get_microsoft_token"]:
+            with patch("msgraph_mcp.server.GraphClient") as MockGC:
+                instance = AsyncMock()
+                instance.get_events = AsyncMock(return_value=SAMPLE_EVENTS)
+                MockGC.return_value = instance
+
+                result = await list_events()
+
+        assert "Team Standup" in result
+        assert "Lunch" in result
+        assert "evt1" in result
+        instance.get_events.assert_called_once_with(count=10)
+
+    @pytest.mark.asyncio
+    async def test_list_events_with_date_range(self):
+        from msgraph_mcp.server import list_events
+
+        patches = _patch_auth()
+        with patches["get_access_token"], patches["get_user_email"], patches["get_microsoft_token"]:
+            with patch("msgraph_mcp.server.GraphClient") as MockGC:
+                instance = AsyncMock()
+                instance.get_calendar_view = AsyncMock(return_value=SAMPLE_EVENTS)
+                MockGC.return_value = instance
+
+                result = await list_events(
+                    start_date="2026-04-01T00:00:00",
+                    end_date="2026-04-07T23:59:59",
+                    count=20,
+                    timezone="America/Chicago",
+                )
+
+        assert "Team Standup" in result
+        instance.get_calendar_view.assert_called_once_with(
+            start="2026-04-01T00:00:00",
+            end="2026-04-07T23:59:59",
+            timezone="America/Chicago",
+            count=20,
+        )
+
+    @pytest.mark.asyncio
+    async def test_list_events_partial_range(self):
+        from msgraph_mcp.server import list_events
+
+        result = await list_events(start_date="2026-04-01T00:00:00")
+        assert "Validation error" in result
+        assert "both" in result.lower()
+
+    @pytest.mark.asyncio
+    async def test_list_events_empty(self):
+        from msgraph_mcp.server import list_events
+
+        patches = _patch_auth()
+        with patches["get_access_token"], patches["get_user_email"], patches["get_microsoft_token"]:
+            with patch("msgraph_mcp.server.GraphClient") as MockGC:
+                instance = AsyncMock()
+                instance.get_events = AsyncMock(return_value=[])
+                MockGC.return_value = instance
+
+                result = await list_events()
+
+        assert "No events found." in result
+
+    @pytest.mark.asyncio
+    async def test_list_events_graph_api_error(self):
+        from msgraph_mcp.server import list_events
+
+        patches = _patch_auth()
+        with patches["get_access_token"], patches["get_user_email"], patches["get_microsoft_token"]:
+            with patch("msgraph_mcp.server.GraphClient") as MockGC:
+                instance = AsyncMock()
+                instance.get_events = AsyncMock(
+                    side_effect=GraphApiError(401, "Authentication failed. Please re-authenticate.")
+                )
+                MockGC.return_value = instance
+
+                result = await list_events()
+
+        assert "re-authenticate" in result.lower()
+
+
+# ── get_event ────────────────────────────────────────────────────────
+
+
+class TestGetEventTool:
+    @pytest.mark.asyncio
+    async def test_get_event_success(self):
+        from msgraph_mcp.server import get_event
+
+        patches = _patch_auth()
+        with patches["get_access_token"], patches["get_user_email"], patches["get_microsoft_token"]:
+            with patch("msgraph_mcp.server.GraphClient") as MockGC:
+                instance = AsyncMock()
+                instance.get_event = AsyncMock(return_value=SAMPLE_EVENTS[0])
+                MockGC.return_value = instance
+
+                result = await get_event(event_id="evt1")
+
+        assert "Team Standup" in result
+        assert "Subject:" in result
+        assert "Start:" in result
+        assert "End:" in result
+        assert "Room A" in result
+        assert "org@example.com" in result
+        assert "alice@example.com" in result
+        assert "Daily standup meeting." in result
+        assert "evt1" in result
+
+    @pytest.mark.asyncio
+    async def test_get_event_not_found(self):
+        from msgraph_mcp.server import get_event
+
+        patches = _patch_auth()
+        with patches["get_access_token"], patches["get_user_email"], patches["get_microsoft_token"]:
+            with patch("msgraph_mcp.server.GraphClient") as MockGC:
+                instance = AsyncMock()
+                instance.get_event = AsyncMock(
+                    side_effect=GraphApiError(404, "Not found: the specified event does not exist.")
+                )
+                MockGC.return_value = instance
+
+                result = await get_event(event_id="bad-id")
+
+        assert "Not found" in result
+
+
+# ── create_event ─────────────────────────────────────────────────────
+
+
+class TestCreateEventTool:
+    @pytest.mark.asyncio
+    async def test_create_event_success(self):
+        from msgraph_mcp.server import create_event
+
+        created = {
+            "id": "evt-new",
+            "subject": "Team Lunch",
+            "start": {"dateTime": "2026-04-01T12:00:00.0000000", "timeZone": "America/Chicago"},
+            "end": {"dateTime": "2026-04-01T13:00:00.0000000", "timeZone": "America/Chicago"},
+            "location": {"displayName": "Cafe"},
+        }
+        patches = _patch_auth()
+        with patches["get_access_token"], patches["get_user_email"], patches["get_microsoft_token"]:
+            with patch("msgraph_mcp.server.GraphClient") as MockGC:
+                instance = AsyncMock()
+                instance.create_event = AsyncMock(return_value=created)
+                MockGC.return_value = instance
+
+                result = await create_event(
+                    subject="Team Lunch",
+                    start_time="2026-04-01T12:00:00",
+                    end_time="2026-04-01T13:00:00",
+                    timezone="America/Chicago",
+                    location="Cafe",
+                    body="Team lunch at the cafe",
+                    attendees="alice@example.com, bob@example.com",
+                    is_all_day=False,
+                    is_online_meeting=True,
+                )
+
+        assert "Event created successfully." in result
+        assert "Team Lunch" in result
+        assert "Cafe" in result
+        assert "evt-new" in result
+
+    @pytest.mark.asyncio
+    async def test_create_event_missing_subject(self):
+        from msgraph_mcp.server import create_event
+
+        result = await create_event(
+            subject="",
+            start_time="2026-04-01T09:00:00",
+            end_time="2026-04-01T10:00:00",
+        )
+        assert "Validation error" in result
+        assert "subject" in result.lower()
+
+    @pytest.mark.asyncio
+    async def test_create_event_start_after_end(self):
+        from msgraph_mcp.server import create_event
+
+        result = await create_event(
+            subject="Meeting",
+            start_time="2026-04-01T14:00:00",
+            end_time="2026-04-01T13:00:00",
+        )
+        assert "Validation error" in result
+        assert "start_time" in result
+
+    @pytest.mark.asyncio
+    async def test_create_event_invalid_email(self):
+        from msgraph_mcp.server import create_event
+
+        result = await create_event(
+            subject="Meeting",
+            start_time="2026-04-01T09:00:00",
+            end_time="2026-04-01T10:00:00",
+            attendees="not-an-email",
+        )
+        assert "Validation error" in result
+        assert "not-an-email" in result
+
+    @pytest.mark.asyncio
+    async def test_create_event_auth_failure(self):
+        from msgraph_mcp.server import create_event
+
+        with patch("msgraph_mcp.server.get_access_token", return_value=None):
+            result = await create_event(
+                subject="Meeting",
+                start_time="2026-04-01T09:00:00",
+                end_time="2026-04-01T10:00:00",
+            )
+
+        assert "Authentication required" in result
+
+
+# ── update_event ─────────────────────────────────────────────────────
+
+
+class TestUpdateEventTool:
+    @pytest.mark.asyncio
+    async def test_update_event_success(self):
+        from msgraph_mcp.server import update_event
+
+        updated = {"id": "evt1", "subject": "New Subject"}
+        patches = _patch_auth()
+        with patches["get_access_token"], patches["get_user_email"], patches["get_microsoft_token"]:
+            with patch("msgraph_mcp.server.GraphClient") as MockGC:
+                instance = AsyncMock()
+                instance.update_event = AsyncMock(return_value=updated)
+                MockGC.return_value = instance
+
+                result = await update_event(event_id="evt1", subject="New Subject")
+
+        assert "Event updated successfully." in result
+        assert "New Subject" in result
+        assert "evt1" in result
+
+    @pytest.mark.asyncio
+    async def test_update_event_no_fields(self):
+        from msgraph_mcp.server import update_event
+
+        result = await update_event(event_id="evt1")
+        assert "No fields provided" in result
+
+    @pytest.mark.asyncio
+    async def test_update_event_graph_api_error(self):
+        from msgraph_mcp.server import update_event
+
+        patches = _patch_auth()
+        with patches["get_access_token"], patches["get_user_email"], patches["get_microsoft_token"]:
+            with patch("msgraph_mcp.server.GraphClient") as MockGC:
+                instance = AsyncMock()
+                instance.update_event = AsyncMock(
+                    side_effect=GraphApiError(404, "Not found: the specified event does not exist.")
+                )
+                MockGC.return_value = instance
+
+                result = await update_event(event_id="bad-id", subject="X")
+
+        assert "Not found" in result
+
+
+# ── delete_event ─────────────────────────────────────────────────────
+
+
+class TestDeleteEventTool:
+    @pytest.mark.asyncio
+    async def test_delete_event_success(self):
+        from msgraph_mcp.server import delete_event
+
+        patches = _patch_auth()
+        with patches["get_access_token"], patches["get_user_email"], patches["get_microsoft_token"]:
+            with patch("msgraph_mcp.server.GraphClient") as MockGC:
+                instance = AsyncMock()
+                instance.delete_event = AsyncMock(return_value=None)
+                MockGC.return_value = instance
+
+                result = await delete_event(event_id="evt1")
+
+        assert "deleted successfully" in result.lower()
+
+    @pytest.mark.asyncio
+    async def test_delete_event_not_found(self):
+        from msgraph_mcp.server import delete_event
+
+        patches = _patch_auth()
+        with patches["get_access_token"], patches["get_user_email"], patches["get_microsoft_token"]:
+            with patch("msgraph_mcp.server.GraphClient") as MockGC:
+                instance = AsyncMock()
+                instance.delete_event = AsyncMock(
+                    side_effect=GraphApiError(404, "Not found: the specified event does not exist.")
+                )
+                MockGC.return_value = instance
+
+                result = await delete_event(event_id="bad-id")
+
+        assert "Not found" in result
+
+
+# ── get_availability ─────────────────────────────────────────────────
+
+
+class TestGetAvailability:
+    @pytest.mark.asyncio
+    async def test_get_availability_full(self):
+        from msgraph_mcp.server import get_availability
+
+        schedule = {
+            "scheduleId": "user@example.com",
+            "scheduleItems": [
+                {
+                    "status": "busy",
+                    "subject": "Team Standup",
+                    "start": {"dateTime": "2026-04-01T09:00:00.0000000"},
+                    "end": {"dateTime": "2026-04-01T09:30:00.0000000"},
+                },
+            ],
+        }
+        patches = _patch_auth()
+        with patches["get_access_token"], patches["get_user_email"], patches["get_microsoft_token"]:
+            with patch("msgraph_mcp.server.GraphClient") as MockGC:
+                instance = AsyncMock()
+                instance.get_schedule = AsyncMock(return_value=schedule)
+                MockGC.return_value = instance
+
+                result = await get_availability(
+                    start_time="2026-04-01T08:00:00",
+                    end_time="2026-04-01T17:00:00",
+                )
+
+        assert "Availability from" in result
+        assert "Busy" in result
+        assert "Team Standup" in result
+
+    @pytest.mark.asyncio
+    async def test_get_availability_free(self):
+        from msgraph_mcp.server import get_availability
+
+        schedule = {"scheduleId": "user@example.com", "scheduleItems": []}
+        patches = _patch_auth()
+        with patches["get_access_token"], patches["get_user_email"], patches["get_microsoft_token"]:
+            with patch("msgraph_mcp.server.GraphClient") as MockGC:
+                instance = AsyncMock()
+                instance.get_schedule = AsyncMock(return_value=schedule)
+                MockGC.return_value = instance
+
+                result = await get_availability(
+                    start_time="2026-04-01T08:00:00",
+                    end_time="2026-04-01T17:00:00",
+                )
+
+        assert "free for the entire period" in result.lower()
+
+    @pytest.mark.asyncio
+    async def test_get_availability_check_only_free(self):
+        from msgraph_mcp.server import get_availability
+
+        schedule = {"scheduleId": "user@example.com", "scheduleItems": []}
+        patches = _patch_auth()
+        with patches["get_access_token"], patches["get_user_email"], patches["get_microsoft_token"]:
+            with patch("msgraph_mcp.server.GraphClient") as MockGC:
+                instance = AsyncMock()
+                instance.get_schedule = AsyncMock(return_value=schedule)
+                MockGC.return_value = instance
+
+                result = await get_availability(
+                    start_time="2026-04-01T08:00:00",
+                    end_time="2026-04-01T17:00:00",
+                    check_only=True,
+                )
+
+        assert "free" in result.lower()
+        assert "2026-04-01T08:00:00" in result
+
+    @pytest.mark.asyncio
+    async def test_get_availability_check_only_busy(self):
+        from msgraph_mcp.server import get_availability
+
+        schedule = {
+            "scheduleId": "user@example.com",
+            "scheduleItems": [
+                {"status": "busy", "start": {"dateTime": "2026-04-01T09:00:00"}, "end": {"dateTime": "2026-04-01T10:00:00"}},
+            ],
+        }
+        patches = _patch_auth()
+        with patches["get_access_token"], patches["get_user_email"], patches["get_microsoft_token"]:
+            with patch("msgraph_mcp.server.GraphClient") as MockGC:
+                instance = AsyncMock()
+                instance.get_schedule = AsyncMock(return_value=schedule)
+                MockGC.return_value = instance
+
+                result = await get_availability(
+                    start_time="2026-04-01T08:00:00",
+                    end_time="2026-04-01T17:00:00",
+                    check_only=True,
+                )
+
+        assert "busy" in result.lower()
+
+    @pytest.mark.asyncio
+    async def test_get_availability_missing_times(self):
+        from msgraph_mcp.server import get_availability
+
+        result = await get_availability(start_time="", end_time="2026-04-01T17:00:00")
+        assert "Validation error" in result
+        assert "start_time" in result
+
+    @pytest.mark.asyncio
+    async def test_get_availability_start_after_end(self):
+        from msgraph_mcp.server import get_availability
+
+        result = await get_availability(
+            start_time="2026-04-02T08:00:00",
+            end_time="2026-04-01T17:00:00",
+        )
+        assert "Validation error" in result
+
+    @pytest.mark.asyncio
+    async def test_get_availability_auth_failure(self):
+        from msgraph_mcp.server import get_availability
+
+        with patch("msgraph_mcp.server.get_access_token", return_value=None):
+            result = await get_availability(
+                start_time="2026-04-01T08:00:00",
+                end_time="2026-04-01T17:00:00",
+            )
+
+        assert "Authentication required" in result

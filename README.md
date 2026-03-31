@@ -52,6 +52,18 @@ All email tools require the user to be authenticated via OAuth.
 - **`send_message(to, subject, body, cc?)`** — Send an email. `to` and `cc` accept comma-separated addresses. Validates email format before sending.
 - **`list_mail_folders()`** — List all mail folders with display name, message count, and unread count.
 
+### Calendar
+
+All calendar tools require the user to be authenticated via OAuth.
+
+- **`list_calendars()`** — List all calendars with name, color, default indicator, and ID.
+- **`list_events(start_date?, end_date?, count?, timezone?)`** — List calendar events. When both `start_date` and `end_date` are provided, filters by date range and expands recurring events. Default count is 10, default timezone is UTC.
+- **`get_event(event_id)`** — Get full details of a calendar event: subject, times, location, organizer, attendees with response statuses, body, recurrence, and online meeting link.
+- **`create_event(subject, start_time, end_time, timezone?, location?, body?, attendees?, is_all_day?, is_online_meeting?)`** — Create a new calendar event. `attendees` accepts comma-separated email addresses. Validates time ordering.
+- **`update_event(event_id, subject?, start_time?, end_time?, timezone?, location?, body?, attendees?, is_online_meeting?)`** — Update one or more fields on a calendar event. At least one field must be provided.
+- **`delete_event(event_id)`** — Delete a calendar event.
+- **`get_availability(start_time, end_time, timezone?, check_only?)`** — Check free/busy availability. Returns time slot breakdown by default, or a simple free/busy answer when `check_only=True`.
+
 ### Example Usage
 
 ```
@@ -94,10 +106,10 @@ All email tools require the user to be authenticated via OAuth.
 ```
 msgraph_mcp/
   __init__.py   # Package metadata
-  server.py     # MCP server (FastMCP + streamable HTTP + OAuth + To-Do + Email tools)
+  server.py     # MCP server (FastMCP + streamable HTTP + OAuth + To-Do + Email + Calendar tools)
   config.py     # Allowed users and OAuth configuration
   auth.py       # MicrosoftOAuthProvider (MCP OAuth ↔ Microsoft OAuth bridge)
-  graph.py      # GraphClient — async Microsoft Graph API wrapper for To-Do and Email
+  graph.py      # GraphClient — async Microsoft Graph API wrapper for To-Do, Email, and Calendar
   store.py      # Persistent credential cache (tokens, clients, MSAL cache)
 tests/
   conftest.py     # Shared test fixtures
@@ -105,7 +117,7 @@ tests/
   test_auth.py    # OAuth provider tests
   test_store.py   # Credential store tests
   test_graph.py   # GraphClient unit tests
-  test_tools.py   # To-Do MCP tool tests
+  test_tools.py   # To-Do, Email, and Calendar MCP tool tests
 infra/
   main.bicep    # Azure App Service infrastructure
 .github/
@@ -122,7 +134,7 @@ The server uses MCP-native OAuth to authenticate users with Microsoft personal a
    - Account type: "Personal Microsoft accounts only"
    - Platform: Web
    - Redirect URI: `http://localhost:8000/auth/microsoft/callback`
-   - Add Graph delegated permissions: `User.Read`, `Mail.Read`, `Mail.Send`, `Calendars.Read`, `Tasks.ReadWrite`, `Files.Read`
+   - Add Graph delegated permissions: `User.Read`, `Mail.ReadWrite`, `Mail.Send`, `Calendars.ReadWrite`, `Tasks.ReadWrite`, `Files.Read`
 
 2. Set environment variables:
    ```bash

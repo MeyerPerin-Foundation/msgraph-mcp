@@ -515,3 +515,315 @@ class TestSendMessage:
         with pytest.raises(GraphApiError) as exc_info:
             await client.send_message(to=["a@test.com"], subject="X", body="Y")
         assert exc_info.value.status_code == 403
+
+
+# ── get_calendars ─────────────────────────────────────────────────────
+
+
+class TestGetCalendars:
+    @pytest.mark.asyncio
+    async def test_returns_calendars(self):
+        client = GraphClient("tok")
+        sample = [
+            {"id": "cal1", "name": "Calendar", "isDefaultCalendar": True},
+            {"id": "cal2", "name": "Work"},
+        ]
+        client._request = AsyncMock(return_value=_mock_response(200, {"value": sample}))
+        result = await client.get_calendars()
+        assert result == sample
+        call_args = client._request.call_args
+        assert call_args[0][0] == "GET"
+        assert "/me/calendars" in call_args[0][1]
+
+    @pytest.mark.asyncio
+    async def test_empty_calendars(self):
+        client = GraphClient("tok")
+        client._request = AsyncMock(return_value=_mock_response(200, {"value": []}))
+        result = await client.get_calendars()
+        assert result == []
+
+
+# ── get_events ────────────────────────────────────────────────────────
+
+
+class TestGetEvents:
+    @pytest.mark.asyncio
+    async def test_returns_events(self):
+        client = GraphClient("tok")
+        sample = [{"id": "evt1", "subject": "Meeting"}]
+        client._request = AsyncMock(return_value=_mock_response(200, {"value": sample}))
+        result = await client.get_events(count=5)
+        assert result == sample
+        call_args = client._request.call_args
+        path = call_args[0][1]
+        assert "/me/events?" in path
+        assert "$top=5" in path
+        assert "$orderby=start/dateTime" in path
+
+    @pytest.mark.asyncio
+    async def test_default_count(self):
+        client = GraphClient("tok")
+        client._request = AsyncMock(return_value=_mock_response(200, {"value": []}))
+        await client.get_events()
+        call_args = client._request.call_args
+        path = call_args[0][1]
+        assert "$top=10" in path
+
+
+# ── get_calendar_view ─────────────────────────────────────────────────
+
+
+class TestGetCalendarView:
+    @pytest.mark.asyncio
+    async def test_returns_view(self):
+        client = GraphClient("tok")
+        sample = [{"id": "evt1", "subject": "Recurring"}]
+        client._request = AsyncMock(return_value=_mock_response(200, {"value": sample}))
+        result = await client.get_calendar_view(
+            start="2026-04-01T00:00:00",
+            end="2026-04-07T23:59:59",
+            timezone="America/New_York",
+            count=20,
+        )
+        assert result == sample
+        call_args = client._request.call_args
+        path = call_args[0][1]
+        assert "/me/calendarView?" in path
+        assert "startDateTime=2026-04-01T00:00:00" in path
+        assert "endDateTime=2026-04-07T23:59:59" in path
+        assert "$top=20" in path
+        assert "$orderby=start/dateTime" in path
+
+
+# ── get_event ─────────────────────────────────────────────────────────
+
+
+class TestGetEvent:
+    @pytest.mark.asyncio
+    async def test_returns_event(self):
+        client = GraphClient("tok")
+        evt = {"id": "evt1", "subject": "Standup", "isAllDay": False}
+        client._request = AsyncMock(return_value=_mock_response(200, evt))
+        result = await client.get_event("evt1")
+        assert result == evt
+        call_args = client._request.call_args
+        assert "/me/events/evt1" in call_args[0][1]
+
+    @pytest.mark.asyncio
+    async def test_not_found(self):
+        client = GraphClient("tok")
+        client._request = AsyncMock(
+            side_effect=GraphApiError(404, "Not found: the specified event does not exist.")
+        )
+        with pytest.raises(GraphApiError) as exc_info:
+            await client.get_event("bad-id")
+        assert exc_info.value.status_code == 404
+
+
+# ── create_event ──────────────────────────────────────────────────────
+
+
+class TestCreateEvent:
+    @pytest.mark.asyncio
+    async def test_creates_with_all_fields(self):
+        client = GraphClient("tok")
+        created = {"id": "evt-new", "subject": "Lunch"}
+        client._request = AsyncMock(return_value=_mock_response(201, created))
+
+        result = await client.create_event(
+            subject="Lunch",
+            start="2026-04-01T12:00:00",
+            end="2026-04-01T13:00:00",
+            timezone="America/Chicago",
+            location="Cafe",
+            body="Team lunch",
+            attendees=["a@test.com", "b@test.com"],
+            is_all_day=False,
+            is_online_meeting=True,
+        )
+        assert result == created
+
+        call_args = client._request.call_args
+        assert call_args[0][0] == "POST"
+        assert "/me/events" in call_args[0][1]
+        payload = call_args.kwargs.get("json") or call_args[1].get("json")
+        assert payload["subject"] == "Lunch"
+        assert payload["start"] == {"dateTime": "2026-04-01T12:00:00", "timeZone": "America/Chicago"}
+        assert payload["end"] == {"dateTime": "2026-04-01T13:00:00", "timeZone": "America/Chicago"}
+        assert payload["location"] == {"displayName": "Cafe"}
+        assert payload["body"] == {"contentType": "text", "content": "Team lunch"}
+        assert len(payload["attendees"]) == 2
+        assert payload["attendees"][0]["emailAddress"]["address"] == "a@test.com"
+        assert payload["isOnlineMeeting"] is True
+        assert payload["isAllDay"] is False
+
+    @pytest.mark.asyncio
+    async def test_creates_minimal(self):
+        client = GraphClient("tok")
+        created = {"id": "evt-min", "subject": "Quick chat"}
+        client._request = AsyncMock(return_value=_mock_response(201, created))
+
+        result = await client.create_event(
+            subject="Quick chat",
+            start="2026-04-01T09:00:00",
+            end="2026-04-01T09:30:00",
+        )
+        assert result == created
+
+        call_args = client._request.call_args
+        payload = call_args.kwargs.get("json") or call_args[1].get("json")
+        assert payload["subject"] == "Quick chat"
+        assert "location" not in payload
+        assert "body" not in payload
+        assert "attendees" not in payload
+        assert payload["isAllDay"] is False
+        assert payload["isOnlineMeeting"] is False
+
+
+# ── update_event ──────────────────────────────────────────────────────
+
+
+class TestUpdateEvent:
+    @pytest.mark.asyncio
+    async def test_update_subject_only(self):
+        client = GraphClient("tok")
+        updated = {"id": "evt1", "subject": "New Subject"}
+        client._request = AsyncMock(return_value=_mock_response(200, updated))
+
+        result = await client.update_event("evt1", subject="New Subject")
+        assert result == updated
+
+        call_args = client._request.call_args
+        assert call_args[0][0] == "PATCH"
+        assert "/me/events/evt1" in call_args[0][1]
+        payload = call_args.kwargs.get("json") or call_args[1].get("json")
+        assert payload == {"subject": "New Subject"}
+
+    @pytest.mark.asyncio
+    async def test_update_multiple_fields(self):
+        client = GraphClient("tok")
+        updated = {"id": "evt1", "subject": "Updated"}
+        client._request = AsyncMock(return_value=_mock_response(200, updated))
+
+        await client.update_event(
+            "evt1",
+            subject="Updated",
+            start="2026-04-01T10:00:00",
+            location="Room A",
+            is_online_meeting=True,
+        )
+
+        call_args = client._request.call_args
+        payload = call_args.kwargs.get("json") or call_args[1].get("json")
+        assert payload["subject"] == "Updated"
+        assert payload["start"] == {"dateTime": "2026-04-01T10:00:00", "timeZone": "UTC"}
+        assert payload["location"] == {"displayName": "Room A"}
+        assert payload["isOnlineMeeting"] is True
+        assert "end" not in payload
+        assert "body" not in payload
+        assert "attendees" not in payload
+
+
+# ── delete_event ──────────────────────────────────────────────────────
+
+
+class TestDeleteEvent:
+    @pytest.mark.asyncio
+    async def test_delete_success(self):
+        client = GraphClient("tok")
+        client._request = AsyncMock(return_value=_mock_response(204, {}))
+        result = await client.delete_event("evt1")
+        assert result is None
+        call_args = client._request.call_args
+        assert call_args[0][0] == "DELETE"
+        assert "/me/events/evt1" in call_args[0][1]
+
+    @pytest.mark.asyncio
+    async def test_delete_not_found(self):
+        client = GraphClient("tok")
+        client._request = AsyncMock(
+            side_effect=GraphApiError(404, "Not found: the specified event does not exist.")
+        )
+        with pytest.raises(GraphApiError) as exc_info:
+            await client.delete_event("bad-id")
+        assert exc_info.value.status_code == 404
+
+
+# ── get_schedule ──────────────────────────────────────────────────────
+
+
+class TestGetSchedule:
+    @pytest.mark.asyncio
+    async def test_returns_schedule(self):
+        client = GraphClient("tok")
+        schedule_item = {
+            "scheduleId": "user@example.com",
+            "availabilityView": "0020",
+            "scheduleItems": [
+                {"status": "busy", "start": {"dateTime": "2026-04-01T10:00:00"}, "end": {"dateTime": "2026-04-01T11:00:00"}}
+            ],
+        }
+        client._request = AsyncMock(
+            return_value=_mock_response(200, {"value": [schedule_item]})
+        )
+        result = await client.get_schedule(
+            user_email="user@example.com",
+            start="2026-04-01T08:00:00",
+            end="2026-04-01T17:00:00",
+            timezone="UTC",
+            interval=30,
+        )
+        assert result == schedule_item
+
+        call_args = client._request.call_args
+        assert call_args[0][0] == "POST"
+        assert "/me/calendar/getSchedule" in call_args[0][1]
+        payload = call_args.kwargs.get("json") or call_args[1].get("json")
+        assert payload["schedules"] == ["user@example.com"]
+        assert payload["startTime"] == {"dateTime": "2026-04-01T08:00:00", "timeZone": "UTC"}
+        assert payload["endTime"] == {"dateTime": "2026-04-01T17:00:00", "timeZone": "UTC"}
+        assert payload["availabilityViewInterval"] == 30
+
+    @pytest.mark.asyncio
+    async def test_empty_schedule(self):
+        client = GraphClient("tok")
+        client._request = AsyncMock(return_value=_mock_response(200, {"value": []}))
+        result = await client.get_schedule(
+            user_email="user@example.com",
+            start="2026-04-01T08:00:00",
+            end="2026-04-01T17:00:00",
+        )
+        assert result == {}
+
+    @pytest.mark.asyncio
+    async def test_auth_failure(self):
+        client = GraphClient("bad-tok")
+        client._request = AsyncMock(
+            side_effect=GraphApiError(401, "Authentication failed. Please re-authenticate.")
+        )
+        with pytest.raises(GraphApiError) as exc_info:
+            await client.get_schedule(
+                user_email="user@example.com",
+                start="2026-04-01T08:00:00",
+                end="2026-04-01T17:00:00",
+            )
+        assert exc_info.value.status_code == 401
+
+    @pytest.mark.asyncio
+    async def test_network_error(self):
+        client = GraphClient("tok")
+        with patch("msgraph_mcp.graph.httpx.AsyncClient") as MockClient:
+            instance = AsyncMock()
+            instance.request = AsyncMock(side_effect=httpx.ConnectError("timeout"))
+            instance.__aenter__ = AsyncMock(return_value=instance)
+            instance.__aexit__ = AsyncMock(return_value=False)
+            MockClient.return_value = instance
+
+            with pytest.raises(GraphApiError) as exc_info:
+                await client.get_schedule(
+                    user_email="user@example.com",
+                    start="2026-04-01T08:00:00",
+                    end="2026-04-01T17:00:00",
+                )
+            assert exc_info.value.status_code == 0
+            assert "could not reach" in exc_info.value.message.lower()

@@ -286,3 +286,147 @@ class GraphClient:
             }
         }
         await self._request("POST", "/me/sendMail", json=payload, resource="message")
+
+    # ── Calendar operations ───────────────────────────────────────────
+
+    async def get_calendars(self) -> list[dict]:
+        """Return all calendars for the authenticated user."""
+        resp = await self._request("GET", "/me/calendars", resource="calendar")
+        return resp.json().get("value", [])
+
+    async def get_events(self, count: int = 10) -> list[dict]:
+        """Return upcoming events from the user's default calendar."""
+        path = f"/me/events?$top={count}&$orderby=start/dateTime"
+        resp = await self._request("GET", path, resource="event")
+        return resp.json().get("value", [])
+
+    async def get_calendar_view(
+        self,
+        start: str,
+        end: str,
+        timezone: str = "UTC",
+        count: int = 10,
+    ) -> list[dict]:
+        """Return events within a date range, expanding recurring events."""
+        path = (
+            f"/me/calendarView"
+            f"?startDateTime={start}&endDateTime={end}"
+            f"&$top={count}&$orderby=start/dateTime"
+        )
+        resp = await self._request(
+            "GET",
+            path,
+            resource="event",
+        )
+        return resp.json().get("value", [])
+
+    async def get_event(self, event_id: str) -> dict:
+        """Return a single event by ID."""
+        resp = await self._request(
+            "GET", f"/me/events/{event_id}", resource="event"
+        )
+        return resp.json()
+
+    async def create_event(
+        self,
+        subject: str,
+        start: str,
+        end: str,
+        timezone: str = "UTC",
+        location: str | None = None,
+        body: str | None = None,
+        attendees: list[str] | None = None,
+        is_all_day: bool = False,
+        is_online_meeting: bool = False,
+    ) -> dict:
+        """Create a new calendar event and return the created event."""
+        payload: dict = {
+            "subject": subject,
+            "start": {"dateTime": start, "timeZone": timezone},
+            "end": {"dateTime": end, "timeZone": timezone},
+            "isAllDay": is_all_day,
+            "isOnlineMeeting": is_online_meeting,
+        }
+        if location is not None:
+            payload["location"] = {"displayName": location}
+        if body is not None:
+            payload["body"] = {"contentType": "text", "content": body}
+        if attendees:
+            payload["attendees"] = [
+                {"emailAddress": {"address": addr}, "type": "required"}
+                for addr in attendees
+            ]
+        resp = await self._request(
+            "POST", "/me/events", json=payload, resource="event"
+        )
+        return resp.json()
+
+    async def update_event(
+        self,
+        event_id: str,
+        *,
+        subject: str | None = None,
+        start: str | None = None,
+        end: str | None = None,
+        timezone: str = "UTC",
+        location: str | None = None,
+        body: str | None = None,
+        attendees: list[str] | None = None,
+        is_online_meeting: bool | None = None,
+    ) -> dict:
+        """Update specific fields of an event and return the updated event."""
+        payload: dict = {}
+        if subject is not None:
+            payload["subject"] = subject
+        if start is not None:
+            payload["start"] = {"dateTime": start, "timeZone": timezone}
+        if end is not None:
+            payload["end"] = {"dateTime": end, "timeZone": timezone}
+        if location is not None:
+            payload["location"] = {"displayName": location}
+        if body is not None:
+            payload["body"] = {"contentType": "text", "content": body}
+        if attendees is not None:
+            payload["attendees"] = [
+                {"emailAddress": {"address": addr}, "type": "required"}
+                for addr in attendees
+            ]
+        if is_online_meeting is not None:
+            payload["isOnlineMeeting"] = is_online_meeting
+        resp = await self._request(
+            "PATCH",
+            f"/me/events/{event_id}",
+            json=payload,
+            resource="event",
+        )
+        return resp.json()
+
+    async def delete_event(self, event_id: str) -> None:
+        """Delete an event by ID."""
+        await self._request(
+            "DELETE", f"/me/events/{event_id}", resource="event"
+        )
+
+    async def get_schedule(
+        self,
+        user_email: str,
+        start: str,
+        end: str,
+        timezone: str = "UTC",
+        interval: int = 30,
+    ) -> dict:
+        """Return free/busy schedule for the authenticated user."""
+        payload = {
+            "schedules": [user_email],
+            "startTime": {"dateTime": start, "timeZone": timezone},
+            "endTime": {"dateTime": end, "timeZone": timezone},
+            "availabilityViewInterval": interval,
+        }
+        resp = await self._request(
+            "POST",
+            "/me/calendar/getSchedule",
+            json=payload,
+            resource="schedule",
+        )
+        value = resp.json().get("value", [])
+        return value[0] if value else {}
